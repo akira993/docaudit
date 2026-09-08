@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "akira-plugins",
+  "description": "Claude Code plugins by akira993 — documentation audit tooling.",
+  "owner": { "name": "akira993" },
+  "plugins": [
+    {
+      "name": "docaudit",
+      "source": "./",
+      "description": "1.0.0 documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
+      "category": "documentation",
+      "keywords": ["documentation", "audit", "claude-code"]
+    }
+  ]
+}
