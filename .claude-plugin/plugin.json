@@ -1,7 +1,7 @@
 {
   "name": "docaudit",
-  "version": "1.0.0",
-  "description": "1.0.0 documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
+  "version": "1.0.1",
+  "description": "Documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
   "homepage": "https://github.com/akira993/docaudit",
   "repository": "https://github.com/akira993/docaudit",
   "license": "MIT",

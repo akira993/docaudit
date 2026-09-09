@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.0.0 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.0.1 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 
@@ -13,6 +13,8 @@ English: [ADOPTION.md](ADOPTION.md)
 3. `/docaudit:audit --full` を実行する。公開された report を読み、指摘された文書を直す。
 4. run が `CONSISTENT` で終わるまで `/docaudit:audit --full` を繰り返す。その run が最初の anchor を書く。
 5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書だけが検証される。
+
+1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
 
 ## 2. 考え方
 
@@ -137,7 +139,7 @@ skill は前の session から残った run を回復しません。手作業か
 ## 10. 結果を読む
 
 - **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付きます。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡しを含みます。3 は run を開くことを拒否したこと（設定・profile・run 状態の問題。`reason` に名前が出ます）、4 は開いた run が続行できなかったことです。
-- **report。** `report.path` に公開され、固定の front matter と、run・対象文書・所見・判定・anchor・計測・証跡の節を持ちます。見出しと定型句の大半は日本語です。文書ごとに verdict と食い違いの 1 行要約が並びます。judgement の裏付けとなる証拠の文字列（検証担当には `file:line` 形式が求められます）は、run の証拠台帳と履歴の `judgement` 行に、Claude Code の agent で検証した run ではさらに `runs/<runId>/requests/<seq>/judgements/` に保持されます。検証が始まる前に `undecided` で終わった run は report を公開しません。
+- **report。** `report.path` に公開され、固定の front matter と、run・対象文書・所見・判定・anchor・計測・証跡の節を持ちます。見出しと定型句の大半は日本語です。所見ごとに 1 行が並びます。文書は verdict と食い違いの 1 行要約、それ以外の所見（project check・link・claim など）は severity と要約です。judgement の裏付けとなる証拠の文字列（Codex backend には rationale に `file:line` を引用するよう、Claude Code の agent にはリポジトリ相対の証拠を示すよう求めます）は、run の証拠台帳と履歴の `judgement` 行に、Claude Code の agent で検証した run ではさらに `runs/<runId>/requests/<seq>/judgements/` に保持されます。検証が始まる前に `undecided` で終わった run は report を公開しません。
 - **state ディレクトリ。** `.claude/state/docaudit/history.jsonl` は run の outcome と judgement を 1 行ずつ記録し（ほかに `flip`・`anchor`・`legacy`・`migration` の行）、`anchors/<profile>.json` が現在の anchor、`runs/<runId>/` が封印された manifest・adapter 結果と judgement を含む証拠台帳・`verdict.json` を保持します。state ディレクトリを commit する（履歴を version 管理下で監査可能にする）か無視する（clone ごとのローカル状態にする）かは一度決めてください。engine はどちらでも動きます。
 
 ### outcome 早見表
@@ -149,6 +151,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、Claude Code の中でもない） | Codex を install または修復するか、Claude Code の中で実行 |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | 対応表を絞るか上限を上げるか、`--full` で実行 |
+| `undecided corpus-unreadable` | 検証用 mirror の準備中に corpus 内の文書を読めなかった（Claude Code の agent backend） | file を読めるようにする（権限、壊れた symlink）して再実行 |
 | `undecided sandbox-unavailable` | `sandbox-exec` のない環境で `projectChecks` を設定 | Linux では `projectChecks` を空に |
 | `undecided workflow-adapter-unavailable` | Claude Code の agent 経由の `extended` | Codex backend を使う |
 | `undecided abandoned` | run が放棄された | 再実行 |
@@ -161,7 +164,7 @@ skill は前の session から残った run を回復しません。手作業か
 - **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で `..` を含まず、`report.path` は `.md` で終わり、`<YYYY-MM-DD>` をちょうど 1 つ含み、その前に空でない basename の接頭辞が必要です。
 - **`config-needs-migration`。** legacy file しかありません。`migrate` を実行してください（第 6 節）。
 - **最初の run で front matter や orphan の警告が大量に出る。** どれも non-blocking です。時間をかけて直すか、`documentChecks.layerGlobs` で文書を除外してください。
-- **`history-corrupt`。** `history.jsonl` が読めないかどこかの行が壊れているか、`anchors/` 配下の anchor file が読めない・形式が不正か、`CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままなので、次の監査の前に再開か放棄をします。
+- **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままなので、次の監査の前に再開か放棄をします。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
 - **`mutex-timeout` または `run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
-- **想定外の file がリポジトリに書かれた。** engine がリポジトリ内に書くのは report と `.claude/state/docaudit/` だけです。それ以外は監査中に動いた別のツールによるもので、run が `REFUSED worktree-modified` になる原因でもあります。
+- **想定外の file がリポジトリに書かれた。** engine がリポジトリ内に書くのは report と `.claude/state/docaudit/` だけです。repo 直下の `.mdq/`（mdq の索引と利用記録）だけは例外で、1.0.1 以降 gate は無視します。それ以外は監査中に動いた別のツールによるもので、run が `REFUSED worktree-modified` になる原因でもあります。

@@ -2,7 +2,7 @@
 
 日本語版: [ADOPTION.ja.md](ADOPTION.ja.md)
 
-This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.0.0 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md).
+This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.0.1 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
 
 Commands in this guide use the engine path of the skills-dir install, `~/.claude/skills/docaudit/skills/audit/engine`. If you installed through the marketplace, substitute the engine path given in the README's install section.
 
@@ -13,6 +13,8 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 3. Run `/docaudit:audit --full`. Read the report it publishes and fix the documents it flags.
 4. Repeat `/docaudit:audit --full` until the run ends `CONSISTENT`. That run writes the first anchor.
 5. From then on run `/docaudit:audit` after changes. Only the documents impacted by what changed are verified.
+
+Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
 
 ## 2. Mental model
 
@@ -137,7 +139,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 ## 10. Read the results
 
 - **The result line.** The last line of the engine output is one JSON object. A closed run has `nextAction` (`done` or `abort`), `runId`, `outcome`, and when present `reason` and `reportPath`; a hand-off to the workflow has `nextAction: invoke-workflow` with `requestSeq` and `requestPath` instead of an outcome. Exit status 0 means the engine finished normally, including `undecided`, `REFUSED`, and the hand-off; 3 means it refused to open a run (configuration, profile, or run-state problem, named in `reason`); 4 means an opened run could not proceed.
-- **The report.** Published at `report.path` with fixed front matter and sections for the run, the audited documents, the findings, the verdict, the anchor, the measurements, and the evidence. Most of its headings and fixed phrases are Japanese. It lists each document with its verdict and a one-line summary of the mismatch; the evidence strings behind a judgement (the verifier is asked for `file:line` references) are kept in the run's evidence ledger, in the `judgement` lines of the history, and, for runs verified through Claude Code agents, in `runs/<runId>/requests/<seq>/judgements/`. Runs that end `undecided` before verification starts publish no report.
+- **The report.** Published at `report.path` with fixed front matter and sections for the run, the audited documents, the findings, the verdict, the anchor, the measurements, and the evidence. Most of its headings and fixed phrases are Japanese. It has one line per finding: each document with its verdict and a one-line summary of the mismatch, and each other finding with its severity and summary, including project checks, links, and claims; the evidence strings behind a judgement (the Codex backend is asked to cite `file:line` in its rationale; Claude Code agents are asked for repository-relative evidence) are kept in the run's evidence ledger, in the `judgement` lines of the history, and, for runs verified through Claude Code agents, in `runs/<runId>/requests/<seq>/judgements/`. Runs that end `undecided` before verification starts publish no report.
 - **The state directory.** `.claude/state/docaudit/history.jsonl` records one line per run outcome and per judgement (plus `flip`, `anchor`, `legacy`, and `migration` lines), `anchors/<profile>.json` holds the current anchor, and `runs/<runId>/` holds the sealed manifest, the evidence ledger with the adapter results and judgements, and `verdict.json`. Decide once whether to commit the state directory (auditable history in version control) or ignore it (local state per clone); the engine works either way.
 
 ### Outcomes at a glance
@@ -149,6 +151,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 | `undecided anchor-missing` | incremental run without an anchor | run with `--full` |
 | `undecided backend-unavailable` | capability detection found no usable backend: no Codex, and not inside Claude Code | install or fix Codex, or run inside Claude Code |
 | `undecided impact-limit` | more impacted documents than `impact.maxImpactedDocs` | narrow the map or raise the limit, or run `--full` |
+| `undecided corpus-unreadable` | a document in the corpus could not be read while the verification mirror was prepared (Claude Code agent backend) | make the file readable (permissions, broken symlink) and run again |
 | `undecided sandbox-unavailable` | `projectChecks` configured on a platform without `sandbox-exec` | empty `projectChecks` on Linux |
 | `undecided workflow-adapter-unavailable` | `extended` through Claude Code agents | use the Codex backend |
 | `undecided abandoned` | the run was abandoned | run again |
@@ -161,7 +164,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 - **`config-invalid:<detail>` on every run.** The detail names the offending key. Paths must be repository-relative without `..`; `report.path` must end in `.md`, contain exactly one `<YYYY-MM-DD>`, and have a nonempty basename prefix before it.
 - **`config-needs-migration`.** Only the legacy file exists. Run `migrate` (section 6).
 - **The first run reports many front-matter or orphan warnings.** They are non-blocking. Fix them over time, or exempt documents with `documentChecks.layerGlobs`.
-- **`history-corrupt`.** Either `history.jsonl` is unreadable or has a malformed line, an anchor file under `anchors/` is unreadable or malformed, or the anchor candidate that a `CONSISTENT` run points at is unreadable or does not match its recorded hash. The engine neither reads nor appends history until this is repaired. Keep a copy of the whole state directory, then find which file is broken: a malformed history line is fixed by moving the history file aside while preserving its valid lines under another name and starting a new history file; a broken anchor is fixed by moving that profile's anchor file aside, after which the profile needs a new `--full` run. If the failure happened inside a run (exit status 4), that run is still open: resume or abandon it before the next audit.
+- **`history-corrupt`.** `history.jsonl` has a malformed line, is not a regular file, is not UTF-8, or contains an overlong line; an anchor file under `anchors/` is unreadable or malformed; or the anchor candidate that a `CONSISTENT` run points at is unreadable or does not match its recorded hash. The engine neither reads nor appends history until this is repaired. Keep a copy of the whole state directory, then find which file is broken: a malformed history line is fixed by moving the history file aside while preserving its valid lines under another name and starting a new history file; a broken anchor is fixed by moving that profile's anchor file aside, after which the profile needs a new `--full` run. If the failure happened inside a run (exit status 4), that run is still open: resume or abandon it before the next audit. If `history.jsonl` itself cannot be read because of permissions, it stops with exit status 4 and reason `PermissionError`, not `history-corrupt`; repair permissions and run again.
 - **`mutex-timeout` or `run-in-progress`.** Another engine process holds the run. Wait for it, or resume or abandon the run named in `run-open.json` once no process holds it.
 - **The skill is not listed after install.** Start a new Claude Code session or run `/reload-plugins`, then check `claude plugin list`.
-- **Something was written into the repository that you did not expect.** Inside the repository the engine writes only the report and `.claude/state/docaudit/`. Anything else came from another tool that ran during the audit; that is also what makes a run `REFUSED worktree-modified`.
+- **Something was written into the repository that you did not expect.** Inside the repository the engine writes only the report and `.claude/state/docaudit/`. The top-level `.mdq/` (mdq's index and usage record) is the only exception: since 1.0.1 the gate ignores it. Anything else came from another tool that ran during the audit; that is also what makes a run `REFUSED worktree-modified`.

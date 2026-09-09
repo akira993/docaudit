@@ -67,7 +67,7 @@ Expected: the dry run exits 0 with `convertible`, or with `unchanged` when a com
 ## 7. Understand an undecided or REFUSED result
 
 ```
-The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.0.0 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
+The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.0.1 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
 ```
 
 Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full`), `worktree-modified` (something wrote into the repository during the audit; run again without other tools active), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).

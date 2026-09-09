@@ -7,7 +7,7 @@
     {
       "name": "docaudit",
       "source": "./",
-      "description": "1.0.0 documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
+      "description": "Documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
       "category": "documentation",
       "keywords": ["documentation", "audit", "claude-code"]
     }

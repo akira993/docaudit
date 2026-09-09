@@ -67,7 +67,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 ## 7. undecided や REFUSED の結果を理解する
 
 ```
-直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.0.0 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
+直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.0.1 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
 ```
 
 期待: 説明と次の一手。よくある場合: `anchor-missing`（`--full` で実行）、`worktree-modified`（監査中に何かがリポジトリへ書き込んだ。他のツールを止めて再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
