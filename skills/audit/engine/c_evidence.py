@@ -22,6 +22,7 @@ MAX_TREE_ENTRIES = 200_000
 MAX_TREE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_TREE_SNAPSHOT_BYTES = 64 * 1024 * 1024
 WORKFLOW_MAX_REQUESTS = 3
+TOOL_DIRS = (".git", ".mdq")
 RUN_FILES = (
     "journal.jsonl",
     "config.snapshot.json",
@@ -59,6 +60,10 @@ class Ledger(list):
     def __init__(self, values=(), *, truncated: bool = False):
         super().__init__(values)
         self.truncated = truncated
+
+
+def is_tool_path(rel: str) -> bool:
+    return any(rel == directory or rel.startswith(directory + "/") for directory in TOOL_DIRS)
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -212,7 +217,7 @@ def _regular_entry(repo: Any, rel: str, remaining: int) -> tuple[str, int]:
 
 
 def tree_snapshot(repo: Any, allowed_paths: Iterable[str]) -> dict[str, str]:
-    """Read every repository entry except .git and the exact sealed outputs."""
+    """Read every repository entry except .git, .mdq, and the exact sealed outputs."""
     root = _root_path(repo)
     excluded = _excluded_paths(allowed_paths)
     entries: dict[str, str] = {}
@@ -221,12 +226,14 @@ def tree_snapshot(repo: Any, allowed_paths: Iterable[str]) -> dict[str, str]:
     for current, directories, files in os.walk(root, topdown=True, followlinks=False):
         relative_dir = os.path.relpath(current, root)
         relative_dir = "" if relative_dir == "." else relative_dir.replace(os.sep, "/")
-        if not relative_dir:
-            directories[:] = [name for name in directories if name != ".git"]
+        directories[:] = [
+            name for name in directories
+            if not is_tool_path(f"{relative_dir}/{name}" if relative_dir else name)
+        ]
         names = sorted(directories + files)
         for name in names:
             rel = f"{relative_dir}/{name}" if relative_dir else name
-            if rel == ".git" or rel.startswith(".git/") or rel in excluded:
+            if is_tool_path(rel) or rel in excluded:
                 continue
             try:
                 info = os.lstat(os.path.join(current, name))

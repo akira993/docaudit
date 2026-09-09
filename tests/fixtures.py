@@ -304,6 +304,9 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
         "    value = json.loads(database().read_text(encoding='utf-8'))\n"
         "    for item in value['files']: print(json.dumps({'path': item['path'], 'heading_path': item['heading_path'], 'lines': [1, 1]}))\n"
         "elif command == 'search':\n"
+        "    usage = pathlib.Path.cwd() / '.mdq' / 'usage.jsonl'\n"
+        "    usage.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    with usage.open('a', encoding='utf-8') as stream: stream.write(json.dumps({'command': 'search'}) + '\\n')\n"
         "    value = json.loads(database().read_text(encoding='utf-8'))\n"
         "    query = option('--q', '')\n"
         "    selected = option('--paths')\n"
@@ -313,6 +316,9 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
         "        if query.lower() in haystack.lower():\n"
         "            print(json.dumps({'path': item['path'], 'chunk_id': item['chunk_id'], 'heading_path': item['heading_path']})); break\n"
         "elif command == 'get':\n"
+        "    usage = pathlib.Path.cwd() / '.mdq' / 'usage.jsonl'\n"
+        "    usage.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    with usage.open('a', encoding='utf-8') as stream: stream.write(json.dumps({'command': 'get'}) + '\\n')\n"
         "    value = json.loads(database().read_text(encoding='utf-8'))\n"
         "    chunk = option('--chunk-id')\n"
         "    item = next((row for row in value['files'] if row['chunk_id'] == chunk), None)\n"
@@ -326,7 +332,7 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
     return binary, path_dir
 
 
-def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal"):
+def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal", mdq=None):
     """Write one Workflow generation as a synthetic external agent would."""
     requests = repo / ".claude" / "state" / "docaudit" / "runs" / run_id / "requests"
     candidates = [
@@ -388,4 +394,13 @@ def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal"):
     done_path.write_text(json.dumps(done, sort_keys=True), encoding="utf-8")
     if behaviour == "stray-write":
         (repo / "unexpected-output.txt").write_text("external write", encoding="utf-8")
+    if behaviour == "stray-mdq":
+        if mdq is None:
+            raise ValueError("stray-mdq requires an mdq executable")
+        command = [str(mdq), "search"]
+        index_db = request["retrieval"].get("indexDb")
+        if index_db:
+            command.extend(["--db", index_db])
+        command.extend(["--lang", "ja-jp", "--q", "x", "--mode", "grep", "--top-k", "1"])
+        subprocess.run(command, cwd=repo, check=True)
     return request

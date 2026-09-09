@@ -195,6 +195,21 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result["reason"], "worktree-modified")
                 self.assertIn(changed, result["worktreeDiff"])
 
+    def test_t_c_top_level_mdq_is_ignored_but_other_ignored_writes_are_refused(self):
+        """T-C: only the top-level mdq tool area is exempt from rule 7."""
+        with gate_fixture() as fixture:
+            usage = fixture.root / ".mdq" / "usage.jsonl"
+            usage.parent.mkdir()
+            usage.write_text('{"command":"search"}\n', encoding="utf-8")
+            self.assertNotEqual(decide(fixture)["verdict"], "REFUSED")
+            (fixture.root / ".gitignore").write_text("ignored/**\n", encoding="utf-8")
+            ignored = fixture.root / "ignored" / "new.bin"
+            ignored.parent.mkdir()
+            ignored.write_bytes(b"new")
+            result = decide(fixture)
+            self.assertEqual((result["verdict"], result["reason"]), ("REFUSED", "worktree-modified"))
+            self.assertIn("ignored/new.bin", result["worktreeDiff"])
+
     def test_rule_8_judgement_mismatch_precedes_incomplete(self):
         with gate_fixture() as fixture:
             records = [json.loads(json.dumps(row)) for row in fixture.records]

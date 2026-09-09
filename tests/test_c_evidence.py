@@ -150,6 +150,34 @@ class EvidenceTests(unittest.TestCase):
             (root / "reports" / ".tmp-out.md").write_text("changed", encoding="utf-8")
             self.assertEqual(c_evidence.tree_digest(root, ["reports/out.md"]), first)
 
+    def test_t_a_top_level_mdq_is_excluded_from_tree_digest(self):
+        """T-A: top-level .mdq changes and a .mdq file do not affect the digest."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = c_evidence.tree_digest(root, [])
+            usage = root / ".mdq" / "usage.jsonl"
+            usage.parent.mkdir()
+            usage.write_text('{"command":"search"}\n', encoding="utf-8")
+            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            with usage.open("a", encoding="utf-8") as stream:
+                stream.write('{"command":"get"}\n')
+            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            usage.unlink()
+            usage.parent.rmdir()
+            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            (root / ".mdq").write_text("not a directory", encoding="utf-8")
+            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+
+    def test_t_b_nested_mdq_remains_in_tree_digest(self):
+        """T-B: a nested .mdq directory is not a top-level tool directory."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = c_evidence.tree_digest(root, [])
+            usage = root / "sub" / ".mdq" / "usage.jsonl"
+            usage.parent.mkdir(parents=True)
+            usage.write_text('{"command":"search"}\n', encoding="utf-8")
+            self.assertNotEqual(c_evidence.tree_digest(root, []), baseline)
+
     def test_append_read_unknown_large_and_truncated_records(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

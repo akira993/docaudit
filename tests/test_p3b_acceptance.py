@@ -269,6 +269,32 @@ class P3bAcceptanceTests(unittest.TestCase):
                 "REFUSED",
             )
 
+    def test_workflow_stray_mdq_usage_is_ignored(self):
+        with tempfile.TemporaryDirectory() as outer:
+            base = Path(outer)
+            repo = base / "repo"
+            repo.mkdir()
+            init_repo(repo)
+            mdq, path_dir = fake_mdq(base)
+            environment = _workflow_env(base, path_dir)
+            started = _audit(repo, environment)
+            run_id = started["runId"]
+            simulate_external(repo, run_id, behaviour="stray-mdq", mdq=mdq)
+            usage = repo / ".mdq" / "usage.jsonl"
+            self.assertTrue(usage.is_file())
+            self.assertEqual(json.loads(usage.read_text(encoding="utf-8").splitlines()[0])["command"], "search")
+
+            finished = _resume(repo, run_id, environment)
+            outcomes = _outcomes(repo, run_id)
+            self.assertEqual((finished["nextAction"], finished["outcome"]),
+                             ("done", "CONSISTENT"))
+            self.assertEqual(len(outcomes), 1)
+            self.assertEqual(outcomes[0]["data"]["verdict"], "CONSISTENT")
+            self.assertEqual(
+                outcomes[0]["data"]["metrics"]["duration"]["outcome"],
+                "CONSISTENT",
+            )
+
     @acceptance("R-WF-2", targets=1)
     def test_not_requested_document_is_rejected_and_never_becomes_success(self):
         with tempfile.TemporaryDirectory() as outer:

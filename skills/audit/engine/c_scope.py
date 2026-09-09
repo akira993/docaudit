@@ -7,7 +7,7 @@ import os
 import re
 import stat
 
-from . import c_io, procs
+from . import c_evidence, c_io, procs
 from .contract import CONTRACT_VERSION
 
 MAX_SNAPSHOT_ENTRIES = 20_000
@@ -64,7 +64,8 @@ def compute_corpus(repo, facts):
     paths=_git_paths(repo, ignored=not corpus.get("respectGitignore", True))
     return sorted(p for p in paths if any(match_glob(x,p) for x in corpus["docGlobs"])
                   and not any(match_glob(x,p) for x in corpus.get("excludeDocGlobs",[]))
-                  and (corpus.get("auditReportsInCorpus") is True or not rx.fullmatch(p)) and _regular(repo,p))
+                  and (corpus.get("auditReportsInCorpus") is True or not rx.fullmatch(p))
+                  and not c_evidence.is_tool_path(p) and _regular(repo,p))
 def _entry(repo, path):
     data=c_io.read_bytes(repo,path); mode=stat.S_IMODE(c_io.stat_regular(repo,path).st_mode)
     normalized="100755" if mode & 0o111 else "100644"
@@ -73,7 +74,8 @@ def _entry(repo, path):
 def snapshot_worktree(repo, facts, corpus=None):
     f=_facts(facts); corpus=compute_corpus(repo,f) if corpus is None else corpus
     paths=_git_paths(repo)
-    source={p for p in paths if any(match_glob(g,p) for g in f["changes"]["diffGlobs"]) and _regular(repo,p)}
+    source={p for p in paths if any(match_glob(g,p) for g in f["changes"]["diffGlobs"])
+            and not c_evidence.is_tool_path(p) and _regular(repo,p)}
     universe=sorted(source | set(corpus)); result={p:_entry(repo,p) for p in universe if _regular(repo,p)}
     if len(result)>MAX_SNAPSHOT_ENTRIES: raise ScopeRejected("snapshot-too-large")
     return result
@@ -81,6 +83,7 @@ def _digest(value): return hashlib.sha256(json.dumps(value,sort_keys=True,separa
 def compute_changed(repo, anchor, snapshot, corpus, diff_globs):
     old=(anchor or {}).get("snapshot",{}); documents=set((anchor or {}).get("documents",[])); current_docs=set(corpus); rows=[]
     for path in sorted(set(old)|set(snapshot)):
+        if c_evidence.is_tool_path(path): continue
         before, after=old.get(path),snapshot.get(path)
         if before == after: continue
         if before is None: status="added"

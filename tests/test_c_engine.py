@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
+import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from skills.audit.engine import c_evidence, c_history, c_io
+from skills.audit.engine import c_evidence, c_history, c_io, cli
 from skills.audit.engine.deps import AdapterResult, CapabilityResult, EngineDeps, unavailable
 
 from .acceptance import acceptance
@@ -185,6 +189,173 @@ def _assert_success(case: unittest.TestCase, result: dict) -> None:
 
 
 class EngineAcceptanceTests(unittest.TestCase):
+    def test_legacy_mdq_tree_snapshot_refuses_on_resume_and_a_new_run_completes(self):
+        """T-E: an old Workflow tree snapshot containing .mdq is refused on resume."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            project_root = Path(__file__).resolve().parents[1]
+            root = base / "repo"
+            root.mkdir()
+            init_repo(root)
+            usage = root / ".mdq" / "usage.jsonl"
+            usage.parent.mkdir()
+            usage.write_text('{"command":"search"}\n', encoding="utf-8")
+            _, path_dir = fake_mdq(base)
+            environment = {
+                "PATH": f"{path_dir}:/usr/bin:/bin",
+                "HOME": str(base / "home"),
+                "TMPDIR": str(base),
+                "CLAUDECODE": "1",
+                "LANG": "C",
+                "LC_ALL": "C",
+            }
+            (base / "home").mkdir()
+            old_code = (
+                "from skills.audit.engine import c_engine, c_evidence\n"
+                "import json, sys\n"
+                "c_evidence.TOOL_DIRS = ('.git',)\n"
+                "print(json.dumps(c_engine.run(sys.argv[1], full=True, profile='standard'), "
+                "sort_keys=True))\n"
+            )
+            started_process = subprocess.run(
+                [sys.executable, "-c", old_code, str(root)], cwd=project_root,
+                env=environment, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(started_process.returncode, 0, started_process.stderr)
+            started = json.loads(started_process.stdout.splitlines()[-1])
+            self.assertEqual(started["nextAction"], "invoke-workflow")
+            run_id = started["runId"]
+            scope = _json(_run_dir(root, run_id) / "scope.json")
+            named_paths = [*scope.get("corpus", ()), *scope.get("documents", ())]
+            named_paths.extend(scope.get("snapshot", {}).keys())
+            named_paths.extend(row["path"] for row in scope.get("changed", ()))
+            named_paths.extend(row["path"] for row in scope.get("impacted", ()))
+            self.assertFalse(any(path == ".mdq" or path.startswith(".mdq/")
+                                 for path in named_paths))
+            self.assertIn(".mdq/usage.jsonl", _json(_run_dir(root, run_id) / "tree.before.json"))
+
+            from .fixtures import simulate_external
+            simulate_external(root, run_id)
+            resumed_process = subprocess.run(
+                [sys.executable, str(project_root / "skills" / "audit" / "engine"),
+                 "resume", run_id, "--repo-root", str(root)],
+                cwd=project_root, env=environment, text=True, capture_output=True,
+                check=False,
+            )
+            self.assertEqual(resumed_process.returncode, 0, resumed_process.stderr)
+            resumed = json.loads(resumed_process.stdout.splitlines()[-1])
+            self.assertEqual((resumed["outcome"], resumed["reason"]),
+                             ("REFUSED", "worktree-modified"))
+            verdict = _json(_run_dir(root, run_id) / "verdict.json")
+            self.assertTrue(verdict["worktreeDiff"])
+            self.assertTrue(all(path == ".mdq" or path.startswith(".mdq/")
+                                for path in verdict["worktreeDiff"]))
+
+            following_process = subprocess.run(
+                [sys.executable, str(project_root / "skills" / "audit" / "engine"),
+                 "audit", "--full", "--profile", "standard", "--repo-root", str(root)],
+                cwd=project_root, env=environment, text=True, capture_output=True,
+                check=False,
+            )
+            self.assertEqual(following_process.returncode, 0, following_process.stderr)
+            following = json.loads(following_process.stdout.splitlines()[-1])
+            self.assertEqual(following["nextAction"], "invoke-workflow")
+            simulate_external(root, following["runId"])
+            completed_process = subprocess.run(
+                [sys.executable, str(project_root / "skills" / "audit" / "engine"),
+                 "resume", following["runId"], "--repo-root", str(root)],
+                cwd=project_root, env=environment, text=True, capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed_process.returncode, 0, completed_process.stderr)
+            completed = json.loads(completed_process.stdout.splitlines()[-1])
+            self.assertEqual((completed["nextAction"], completed["outcome"]),
+                             ("done", "CONSISTENT"))
+
+    @unittest.skipIf(os.geteuid() == 0, "mode 000 does not deny the root user")
+    def test_cli_history_file_permission_errors_return_structured_results(self):
+        """T-F: CLI catches a history.jsonl permission error without a traceback."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+            state = _state(root)
+            state.mkdir(parents=True)
+            history = state / "history.jsonl"
+            history.write_text("", encoding="utf-8")
+            history.chmod(0)
+            self.addCleanup(
+                lambda: history.chmod(0o600) if history.exists() else None
+            )
+
+            def invoke(arguments):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    exit_code = cli.main(arguments)
+                lines = [line for line in stdout.getvalue().splitlines() if line.strip()]
+                return exit_code, json.loads(lines[-1]), stderr.getvalue()
+
+            environment = {"TMPDIR": str(Path(directory) / "tmp")}
+            Path(environment["TMPDIR"]).mkdir()
+            with mock.patch.dict(os.environ, environment, clear=False):
+                audit_code, audit_result, audit_stderr = invoke(
+                    ["audit", "--repo-root", str(root)]
+                )
+                abandon_code, abandon_result, abandon_stderr = invoke(
+                    ["resume", audit_result["runId"], "--abandon", "--repo-root", str(root)]
+                )
+
+            self.assertEqual((audit_code, audit_result["reason"]), (4, "PermissionError"))
+            self.assertEqual((abandon_code, abandon_result["reason"]), (4, "PermissionError"))
+            self.assertNotIn("Traceback", audit_stderr)
+            self.assertNotIn("Traceback", abandon_stderr)
+
+    def test_legacy_tool_path_in_restored_scope_refuses_before_the_gate(self):
+        """T-G: a scope sealed under the old tool list is a semantic mismatch."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+            policy = root / ".mdq" / "policy.md"
+            policy.parent.mkdir()
+            policy.write_text("# Tool policy\n", encoding="utf-8")
+            config_path = root / ".claude" / "docaudit.json"
+            config = _json(config_path)
+            config["corpus"]["docGlobs"].append(".mdq/**")
+            config_path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
+            anchors = _state(root) / "anchors"
+            anchors.mkdir(parents=True)
+            (anchors / "sentinel.json").write_text('{"kept":true}', encoding="utf-8")
+            before = _anchor_bytes(root)
+
+            def stop_at_capability(_context):
+                raise InjectedStop("old scope sealed")
+
+            injected = _deps(hooks={"capability-detected": stop_at_capability})
+            injected.capability_resolver = lambda directive, env: _workflow_available()
+            with mock.patch.object(c_evidence, "TOOL_DIRS", (".git",)):
+                with self.assertRaises(InjectedStop):
+                    _engine().run(root, full=True, profile="standard", deps=injected)
+            run_id = _run_id(root)
+            scope = _json(_run_dir(root, run_id) / "scope.json")
+            self.assertIn(".mdq/policy.md", scope["corpus"])
+            journal_kinds = {
+                row["kind"] for row in
+                (json.loads(line) for line in
+                 (_run_dir(root, run_id) / "journal.jsonl").read_text().splitlines())
+            }
+            self.assertTrue({"scoped", "planned"} <= journal_kinds)
+            self.assertFalse((_run_dir(root, run_id) / "tree.before.json").exists())
+
+            resumed = _engine().resume(root, run_id, deps=_deps())
+            self.assertEqual((resumed["outcome"], resumed["reason"]),
+                             ("REFUSED", "seal-drift"))
+            self.assertEqual(_anchor_bytes(root), before)
+            following = _engine().run(root, full=True, profile="standard", deps=_deps())
+            _assert_success(self, following)
+            documents = _json(_run_dir(root, following["runId"]) / "scope.json")["documents"]
+            self.assertFalse(any(path == ".mdq" or path.startswith(".mdq/")
+                                 for path in documents))
+
     @acceptance("T-CORE-1", targets=2)
     def test_config_bytes_are_bound_at_seal(self):
         for label in ("value", "whitespace"):

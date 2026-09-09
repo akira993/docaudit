@@ -22,12 +22,14 @@ When `retrieval.method` is `index`, work from the mirror, not the repository:
 Working-directory rule: every `mdq` command must start with `cd "<indexCwd>" &&`
 exactly as shown (this `&&` is required), so that the mirror is its working
 directory. `mdq` appends `.mdq/usage.jsonl` under its working directory, and
-any file created inside the repository other than the assigned judgement makes
-the whole run `REFUSED` as `worktree-modified`. Never run `mdq` with the
+any other file created inside the repository other than the assigned judgement makes
+the whole run `REFUSED` as `worktree-modified`. Bash is only for these `mdq`
+commands and the two judgement calls below; inspect the repository with Read,
+Grep, and Glob. Never run `mdq` with the
 repository as its working directory; `--paths "<path>"` is repository-relative
-and resolves inside the mirror, which holds the same documents. Bash is only
-for these `mdq` commands and the two judgement calls below; inspect the
-repository with Read, Grep, and Glob.
+and resolves inside the mirror, which holds the same documents.
+
+Since 1.0.1 the gate tolerates the repository's top-level `.mdq/`; the mirror rule still applies because `--paths` resolves against the working directory.
 
 If `indexDb` is absent or an index command exits nonzero, immediately fall back
 to targeted Grep and Read against the repository and set `retrievalUsed` to

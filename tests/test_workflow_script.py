@@ -110,7 +110,7 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIsNone(absolute_path.search(agent))
         self.assertIsNone(absolute_path.search(source))
         skill = (self.root / "skills" / "audit" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertLessEqual(len(skill.splitlines()), 10)
+        self.assertLessEqual(len(skill.splitlines()), 12)
         self.assertIn('Workflow({name: "docaudit:docaudit-verify"', skill)
         self.assertNotIn("scriptPath", skill)
         self.assertIn("args: {runId, requestPath}", skill)

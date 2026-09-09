@@ -29,6 +29,8 @@ an absolute path.
 `enabledLayers` is the only declaration of project capability.  The availability
 of external tools is discovered by the engine rather than configured here.
 
+For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.mdq/` are neither documents nor changed paths from 1.0.1 onward.
+
 ## Old-key disposition
 
 | old key | disposition | 1.0.0 key | reason |
@@ -289,6 +291,8 @@ without its file repeats the stage. A complete but mismatched evidence line is
 `evidence-tampered`; an incomplete final line is ignored as
 `evidence-truncated` and its layer is repeated.
 
+A restored scope that names a path under a tool directory such as `.mdq/` (a run opened by 1.0.0) is a semantic mismatch.
+
 Report publication records `rendered` before `write-begin`, then publishes,
 records `write-end`, and finally records `reported`. If the final report already
 matches the rendered SHA-256, resume reconstructs a receipt with
@@ -343,7 +347,10 @@ Atomic and exclusive writes use the deterministic sibling
 it successfully. State-root temporary files are recovered immediately after a
 lease is acquired. The worktree digest excludes the frozen final and temporary
 write paths, but includes every other entry regardless of Git ignore rules;
-only `.git/` is excluded.
+only the repository's top-level `.git/` and `.mdq/` (mdq's index and usage
+records) are excluded. Since 1.0.1 the top-level `.mdq/` is excluded as well;
+1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
+the engine and may grow in later versions.
 
 Workflow runs atomically persist the canonical pre-dispatch tree snapshot in
 `tree.before.json` with a 64 MiB limit. A later process may reconstruct the
@@ -625,6 +632,7 @@ least one chunk, and the first word of a heading from `mdq list --lang ja-jp`
 to produce at least one `mdq search --mode grep --top-k 1 --lang ja-jp` result.
 Index or health failure is fail-open: retrieval becomes `grep` with a specific
 reason. The engine's indexing never writes `.mdq/` into the repository.
+If an external mdq invocation writes to the repository's top-level `.mdq/`, the gate ignores it.
 
 The manifest stores `retrieval` with `method`, `indexAvailable`,
 `indexHealthy`, `reason`, `files`, and `chunks`. Metrics store retrieval method

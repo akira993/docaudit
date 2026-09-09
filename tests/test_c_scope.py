@@ -31,6 +31,17 @@ class ScopeTests(unittest.TestCase):
   (self.root/".gitignore").write_text("docs/a.md\n"); self.assertIn("docs/a.md",c_scope.compute_corpus(self.root,facts()))
  def test_u6_snapshot_omits_symlink_and_missing(self):
   (self.root/"docs/a.md").unlink(); (self.root/"docs/a.md").symlink_to("b.md"); (self.root/"docs/b.md").unlink(); snap=c_scope.snapshot_worktree(self.root,facts()); self.assertNotIn("docs/a.md",snap); self.assertNotIn("docs/b.md",snap)
+ def test_t_d1_top_level_mdq_is_outside_corpus_and_snapshot(self):
+  """T-D1: top-level .mdq matches neither documents nor source snapshots."""
+  f=facts(); f["corpus"]["docGlobs"]=["**/*.md"]; f["changes"]["diffGlobs"]=["**/*.py"]
+  (self.root/".mdq").mkdir(); (self.root/".mdq/policy.md").write_text("policy"); (self.root/".mdq/x.py").write_text("code")
+  corpus=c_scope.compute_corpus(self.root,f); snapshot=c_scope.snapshot_worktree(self.root,f,corpus)
+  self.assertNotIn(".mdq/policy.md",corpus); self.assertNotIn(".mdq/x.py",snapshot)
+ def test_t_d2_deleted_top_level_mdq_in_legacy_anchor_is_not_changed(self):
+  """T-D2: a deleted .mdq path from an old anchor produces no deleted row."""
+  anchor={"snapshot":{".mdq/x.md":"100644:old"},"documents":[".mdq/x.md"]}
+  rows=c_scope.compute_changed(self.root,anchor,{},[],["**/*.md"])
+  self.assertEqual(rows,[])
  def test_u7_no_commit_head_is_none(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d); subprocess.run(["git","init"],cwd=root,stdout=subprocess.DEVNULL,check=True); (root/"docs").mkdir(); (root/"docs/a.md").write_text("x"); self.assertIsNone(c_scope.compute_scope(root,facts(),"p","full",PROFILE_TABLE)["headCommit"])

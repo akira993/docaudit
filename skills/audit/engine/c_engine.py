@@ -1018,6 +1018,22 @@ def _drive_resume(repo, handle, guard, dependencies):
     else:
         computed_scope, computed_plan, row = {}, None, None
     scope = _file_stage(handle, dependencies, journal, "scoped", "scope.json", computed_scope)
+    corpus = scope.get("corpus", [])
+    documents = scope.get("documents", [])
+    snapshot = scope.get("snapshot", {})
+    changed = scope.get("changed", [])
+    impacted = scope.get("impacted", [])
+    scope_paths = (
+        [path for path in (corpus if isinstance(corpus, list) else []) if isinstance(path, str)]
+        + [path for path in (documents if isinstance(documents, list) else []) if isinstance(path, str)]
+        + [path for path in (snapshot if isinstance(snapshot, dict) else []) if isinstance(path, str)]
+        + [item["path"] for item in (changed if isinstance(changed, list) else [])
+           if isinstance(item, Mapping) and isinstance(item.get("path"), str)]
+        + [item["path"] for item in (impacted if isinstance(impacted, list) else [])
+           if isinstance(item, Mapping) and isinstance(item.get("path"), str)]
+    )
+    if any(c_evidence.is_tool_path(path) for path in scope_paths):
+        raise EngineRejected("seal-drift")
     plan_value = computed_plan.document() if computed_plan is not None else {}
     plan = _file_stage(handle, dependencies, journal, "planned", "plan.json", plan_value)
     if _event(journal, "capability-detected") is None:
