@@ -11,6 +11,8 @@ from .contract import CONTRACT_VERSION
 
 REPORT_SCHEMA = "report/1.0"
 REPORT_SECTIONS = ("# docaudit 監査レポート", "## Run", "## 対象", "## 所見", "## 判定", "## Anchor", "## 計測", "## 証跡")
+FORBIDDEN_FRAGMENTS=("/"+"Users/","/"+"ho"+"me/","/"+"private/","~"+"/")
+EMAIL_RE=re.compile(r"\b[\w.+-]+@[\w.-]+\b")
 class ReportPublishFailed(Exception):
     def __init__(self, reason): self.reason=reason; super().__init__(reason)
 def _date(run_id):
@@ -34,8 +36,20 @@ def plan_publication(repo,template,run_id):
         if free(trial): return trial
     raise ReportPublishFailed("path-exhausted")
 def _safe(text):
-    forbidden=("/"+"Users/","/"+"ho"+"me/","/"+"private/","~"+"/")
-    if any(item in text for item in forbidden) or re.search(r"\b[\w.+-]+@[\w.-]+\b",text): raise ValueError("report-unsafe")
+    if any(item in text for item in FORBIDDEN_FRAGMENTS) or EMAIL_RE.search(text): raise ValueError("report-unsafe")
+def _safe_judgement_path(path):
+    try: _safe(path)
+    except (TypeError, ValueError): return False
+    return isinstance(path,str)
+def redact(text):
+    values=[]; count=0
+    for token in re.split(r"(\s+)",text):
+        if token and not token.isspace() and any(item in token for item in FORBIDDEN_FRAGMENTS):
+            values.append("`<path>`"); count+=1
+        else: values.append(token)
+    value="".join(values)
+    value, emails=EMAIL_RE.subn("`<email>`",value)
+    return value,count+emails
 def _decision(facts):
     value=facts.get("verdict")
     if isinstance(value,dict):
@@ -57,7 +71,12 @@ def render(facts):
     findings=facts.get("findings",[])
     lines=list(front)+[REPORT_SECTIONS[0],"",REPORT_SECTIONS[1],f"- runId: {facts['runId']}",f"- mode: {facts.get('mode','')}",f"- profile: {facts['profileName']}",f"- resolvedBackendModel: {facts.get('resolvedBackendModel','')}",f"- enabledLayers: {', '.join(facts.get('enabledLayers',[]))}",f"- contractVersion: {facts.get('contractVersion',CONTRACT_VERSION)}",f"- HEAD: {facts.get('headCommit')}",f"- anchor: {facts.get('anchor')}","",REPORT_SECTIONS[2],f"- corpus: {len(facts.get('corpus',[]))}",f"- changed: {len(changed)}",f"- impacted: {len(impacted)}"]
     lines += ["- "+x.get("path",str(x)) for x in impacted]
-    lines += ["",REPORT_SECTIONS[3]] + [f"- {x.get('path') or x.get('id','')}: {x.get('verdict') or x.get('severity','')} {_finding_summary(x)}" for x in findings]
+    finding_lines=[]; redacted=0
+    for x in findings:
+        tail, count=redact(f"{x.get('verdict') or x.get('severity','')} {_finding_summary(x)}")
+        finding_lines.append(f"- {x.get('path') or x.get('id','')}: {tail}"); redacted+=count
+    lines += ["",REPORT_SECTIONS[3]] + finding_lines
+    if redacted: lines.append(f"- redacted: {redacted}")
     decision="判定できず" if verdict in {None,"undecided"} else str(verdict)
     lines += ["",REPORT_SECTIONS[4],"- "+decision]
     if reason: lines.append("- reason: "+_display(reason))

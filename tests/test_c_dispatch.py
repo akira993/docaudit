@@ -54,6 +54,13 @@ def fake_call(mode):
 
 
 class DispatchTests(unittest.TestCase):
+    def test_prompt_limits_reads_and_citations_to_the_audit_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx = context(Path(directory))
+            prompt = c_dispatch._prompt(ctx, ctx["scope"]["impacted"][0], {"runId": "r", "path": "docs/a.md"})
+        self.assertIn("never read, search, or cite anything outside it", prompt)
+        self.assertIn("outside the audit scope", prompt)
+
     def test_adapter_requires_explicit_reservation_callback(self):
         with tempfile.TemporaryDirectory() as directory:
             ctx = context(Path(directory))

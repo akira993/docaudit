@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+import copy
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,23 @@ from unittest import mock
 
 from skills.audit.engine import c_evidence, c_gate, deps
 from tests.acceptance import acceptance
+
+# Captured mechanically from the pre-extraction gate (`decide` at 1.0.1) with a
+# one-off capture script; values are the gate's own `refusedChecks`.
+H7_EXPECTED = {
+    "backend-not-string": ["judgement-backend:docs/a.md"],
+    "bad-evidence": ["judgement-evidence:docs/a.md"],
+    "bad-failure": ["judgement-failure:docs/a.md"],
+    "bad-verdict-summary": ["judgement-verdict:docs/a.md"],
+    "content-mismatch": ["judgement-content:docs/a.md"],
+    "duplicate-path": ["judgement-duplicate:docs/a.md"],
+    "missing-key": ["judgement-backend:docs/a.md", "judgement-schema"],
+    "non-mapping": ["judgement-schema"],
+    "null-malformed": ["judgement-failure:docs/a.md", "judgement-verdict:docs/a.md"],
+    "outside-path": ["judgement-content:docs/outside.md", "judgement-path:docs/outside.md"],
+    "wrong-layer": ["judgement-duplicate:docs/a.md", "judgement-layer:L-SCOPE"],
+}
+H7_MISSING = {"failed-paths": ["docs/a.md"], "unseen-paths": ["docs/a.md"]}
 
 
 def _blob(data):
@@ -117,6 +135,50 @@ def decide(fixture, records=None, **kwargs):
 
 
 class GateTests(unittest.TestCase):
+    def test_h7_check_judgements_matches_captured_rule_8_checks(self):
+        cases = {
+            "wrong-layer": lambda records, item: records[0]["data"].update(judgements=[copy.deepcopy(item)]),
+            "non-mapping": lambda records, item: records[1]["data"].update(judgements=[7]),
+            "missing-key": lambda records, item: item.pop("backendModel"),
+            "outside-path": lambda records, item: item.update(path="docs/outside.md"),
+            "duplicate-path": lambda records, item: records[1]["data"]["judgements"].append(copy.deepcopy(item)),
+            "null-malformed": lambda records, item: item.update(verdict=None, summary="not-null", failure="bad"),
+            "bad-verdict-summary": lambda records, item: item.update(verdict="OTHER", summary=7),
+            "backend-not-string": lambda records, item: item.update(backendModel=7),
+            "bad-evidence": lambda records, item: item.update(evidence="bad"),
+            "bad-failure": lambda records, item: item.update(failure="bad"),
+            "content-mismatch": lambda records, item: item.update(contentHash="wrong"),
+        }
+        with gate_fixture(("L-SCOPE", "L-DOC", "L-ENRICH")) as fixture:
+            for name, change in cases.items():
+                with self.subTest(name=name):
+                    records = copy.deepcopy(fixture.records)
+                    change(records, records[1]["data"]["judgements"][0])
+                    checks, _failed, _seen, _judgements = c_gate.check_judgements(
+                        c_gate._adapter_rows(records), c_gate.LAYER_REGISTRY, fixture.scope,
+                    )
+                    self.assertEqual(sorted(set(checks)), H7_EXPECTED[name])
+
+    def test_h7_check_judgements_missing_sets_match_captured_gate_output(self):
+        with gate_fixture() as fixture:
+            records = copy.deepcopy(fixture.records)
+            item = records[1]["data"]["judgements"][0]
+            item.update(verdict=None, summary=None, failure={"reason": "timeout", "attempts": 3})
+            checks, failed_paths, seen, _judgements = c_gate.check_judgements(
+                c_gate._adapter_rows(records), c_gate.LAYER_REGISTRY, fixture.scope,
+            )
+            self.assertEqual(checks, [])
+            self.assertEqual(sorted(failed_paths), H7_MISSING["failed-paths"])
+            self.assertEqual(sorted(seen), H7_MISSING["failed-paths"])
+        with gate_fixture() as fixture:
+            records = copy.deepcopy(fixture.records)
+            records[1]["data"]["judgements"] = []
+            checks, failed_paths, seen, _judgements = c_gate.check_judgements(
+                c_gate._adapter_rows(records), c_gate.LAYER_REGISTRY, fixture.scope,
+            )
+            self.assertEqual(checks, [])
+            self.assertEqual(sorted(failed_paths), [])
+            self.assertEqual(sorted(set(path for path in fixture.scope["snapshot"])-seen), H7_MISSING["unseen-paths"])
     @acceptance("T-EVIDENCE-1", targets=3)
     def test_layer_and_producer_identity(self):
         # Each case is a complete fixed input whose final reason is asserted.

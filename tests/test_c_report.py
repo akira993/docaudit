@@ -45,3 +45,11 @@ class ReportTests(unittest.TestCase):
  def test_claim_state_is_appended_to_finding_summary(self):
   text=c_report.render({"runId":"20260101T000000Z-x","profileName":"p","verdict":"NEEDS_FIX","findings":[{"path":"docs/a.md","severity":"FAIL","summary":"mismatch","claim":{"findingId":"adv:a","state":"confirmed"}}]})
   self.assertIn("mismatch [claim: confirmed]",text)
+ def test_redact_finding_text_only(self):
+  path="/"+"Users/"+"synthetic"; mail="person"+"@"+"example.invalid"
+  value,count=c_report.redact("("+path+") "+mail)
+  self.assertEqual((value,count),("`<path>` `<email>`",2))
+  self.assertEqual(c_report.redact(value),(value,0))
+  text=c_report.render({"runId":"20260101T000000Z-x","profileName":"p","verdict":"CONSISTENT","findings":[{"id":"x","severity":"WARN","summary":path+" "+mail}]})
+  self.assertIn("- redacted: 2",text); self.assertIn("`<path>` `<email>`",text)
+  self.assertFalse(any(x in text for x in c_report.FORBIDDEN_FRAGMENTS)); self.assertIsNone(c_report.EMAIL_RE.search(text))

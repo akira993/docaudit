@@ -115,6 +115,8 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertNotIn("scriptPath", skill)
         self.assertIn("args: {runId, requestPath}", skill)
         self.assertIn("--abandon", skill)
+        self.assertIn("outside the audit scope", agent)
+        self.assertIn("outside the audit scope", source)
 
 
 if __name__ == "__main__":

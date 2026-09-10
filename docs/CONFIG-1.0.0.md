@@ -196,6 +196,25 @@ Reports have fixed front matter fields `title`, `description`, `category`,
 report may become a self target next run. Engine-fixed front matter does not
 automatically satisfy `documentChecks.frontMatterFields`.
 
+Before publication, each finding-line summary is redacted token by token: a token
+containing a forbidden outside-repository path fragment becomes `<path>`, and an
+email-address match becomes `<email>`. Placeholders are emitted in code spans so
+they remain visible in Markdown. When replacements occur, the finding
+section adds exactly one `- redacted: N` line. Engine-managed fields, including
+headers, paths, reasons, and refused checks, are not redacted; an unsafe value
+there still fails the whole report closed. A repository-relative path that itself
+matches this safety rule (for example an email-shaped filename) therefore still
+fails closed; rename that file to publish a report.
+
+Non-null document judgements are recorded in history independently of a report
+receipt only when the gate is not REFUSED, the ledger verifies, their identity is
+bound to the sealed scope (impacted path, snapshot content hash, verdict and
+summary shape), and their path passes report safety. `judgementsSkipped` on the
+outcome records the number not recorded and is absent when zero. Their summaries
+and evidence use the same redaction as reports; the evidence ledger and agent
+judgement files remain original. Judgements from undecided runs participate in
+flip and focused-profile regression selection, while REFUSED runs record none.
+
 ## Rejection reasons
 
 Configuration may report `config-missing`, `config-needs-migration`, or
@@ -425,9 +444,7 @@ recorded in history as a REFUSED outcome and closed without publishing a report
 or writing a new `verdict.json`. A post-gate `report-conflict` is recorded as undecided
 with `report-failed {reason: "report-conflict"}` and does not publish or
 overwrite a report. A `tmp-conflict` is recorded as undecided
-`report-publish-failed` with `tmp-conflict` as its detail. Unsafe rendering or
-other failed exclusive publication is also recorded as undecided
-`report-publish-failed`.
+`report-publish-failed` with `tmp-conflict` as its detail. Unsafe engine-managed rendering values or other failed exclusive publication are also recorded as undecided `report-publish-failed`.
 
 ## CLI result and exit status
 
@@ -479,8 +496,7 @@ output limit, 600 second document timeout, five second termination grace, and
 <schema-file> -o <output-file> -`. The prompt is supplied from a private file;
 it names the relative target, provenance, mode, up to 100 changed paths, and an
 identity containing only run ID and relative path. It instructs the model to
-judge the document content against the current repository state, but contains
-neither the content hash, document bytes, nor private absolute paths.
+judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. The prompt contains neither the content hash, document bytes, nor private absolute paths.
 
 The output object has exactly `runId`, `path`, `verdict`, `rationale`, and
 `evidence`. Verdict is `PASS`, `WARN`, or `FAIL`; evidence is a string array.

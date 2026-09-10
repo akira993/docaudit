@@ -622,22 +622,37 @@ def _publish(repo, handle, dependencies, journal, manifest, text, timeline):
     return receipt
 
 
-def _judgements(ledger, manifest, stamp):
+def _judgements(ledger, manifest, scope, stamp):
+    adapters = c_gate._adapter_rows(ledger)
+    checks, _failed_paths, _seen, rows = c_gate.check_judgements(adapters, LAYER_REGISTRY, scope)
+    non_null = [item for layer, item in rows if layer == "L-DOC" and item.get("verdict") in {"PASS", "WARN", "FAIL"}]
+    if checks:
+        return [], len(non_null)
     result = []
-    for row in ledger:
-        if row.get("kind") != "adapter-result":
+    for item in non_null:
+        if not c_report._safe_judgement_path(item.get("path")):
             continue
-        for item in row.get("data", {}).get("judgements", ()):
-            if item.get("verdict") not in {"PASS", "WARN", "FAIL"}:
-                continue
-            value = dict(item)
-            value.update({
-                "changeSetHash": manifest["changeSetHash"], "contractVersion": CONTRACT_VERSION,
-                "profileName": manifest["profileName"], "planHash": manifest["planHash"],
-                "backendModel": item.get("backendModel", manifest["resolvedBackendModel"]), "ts": stamp,
-            })
-            result.append(value)
-    return result
+        value = dict(item)
+        value["summary"] = c_report.redact(str(value.get("summary")))[0]
+        if isinstance(value.get("evidence"), list):
+            value["evidence"] = [c_report.redact(text)[0] for text in value["evidence"]]
+        value.update({
+            "changeSetHash": manifest["changeSetHash"], "contractVersion": CONTRACT_VERSION,
+            "profileName": manifest["profileName"], "planHash": manifest["planHash"],
+            "backendModel": item.get("backendModel", manifest["resolvedBackendModel"]), "ts": stamp,
+        })
+        result.append(value)
+    return result, len(non_null)-len(result)
+
+
+def _non_null_judgement_count(ledger):
+    return sum(
+        1
+        for row in ledger
+        if row.get("kind") == "adapter-result" and row.get("layerId") == "L-DOC"
+        for item in row.get("data", {}).get("judgements", ())
+        if isinstance(item, Mapping) and item.get("verdict") in {"PASS", "WARN", "FAIL"}
+    )
 
 
 def _anchor(handle, scope, published_at):
@@ -664,12 +679,18 @@ def _record(repo, handle, dependencies, journal, manifest, scope, verdict, ledge
             "indexHealthy": manifest.get("retrieval", {}).get("indexHealthy"),
         },
     }
-    if receipt is not None:
-        c_history.record_judgements(repo, handle.run_id, _judgements(ledger, manifest, _stamp(dependencies)))
+    accepted = verdict.get("verdict") != "REFUSED" and c_evidence.verify_ledger(ledger)
+    if accepted:
+        items, skipped = _judgements(ledger, manifest, scope, _stamp(dependencies))
+        c_history.record_judgements(repo, handle.run_id, items)
+    else:
+        items, skipped = [], _non_null_judgement_count(ledger)
     data = {
         "profileName": manifest["profileName"], "contractVersion": CONTRACT_VERSION,
         "metrics": metrics, "reportReceipt": receipt,
     }
+    if skipped:
+        data["judgementsSkipped"] = skipped
     if reason is None and "verdict" in verdict:
         data["verdict"] = verdict["verdict"]
     else:

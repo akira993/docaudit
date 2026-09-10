@@ -110,6 +110,54 @@ def _adapter_rows(ledger: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]
     return [row for row in ledger if row.get("kind") == "adapter-result"]
 
 
+def check_judgements(adapters, registry, scope):
+    impacted = {
+        item.get("path") for item in scope.get("impacted", []) if isinstance(item, Mapping)
+    }
+    snapshot = scope.get("snapshot", {})
+    seen: set[str] = set()
+    failed_paths: set[str] = set()
+    checks: list[str] = []
+    judgements: list[tuple[str, Mapping[str, Any]]] = []
+    judgement_layer = next((row["id"] for row in registry if row["id"] == "L-DOC"), None)
+    for row in adapters:
+        for item in row.get("data", {}).get("judgements", []):
+            if row.get("layerId") != judgement_layer:
+                checks.append("judgement-layer:" + str(row.get("layerId")))
+            if not isinstance(item, Mapping):
+                checks.append("judgement-schema")
+                continue
+            path = item.get("path")
+            required_keys = ("path", "verdict", "summary", "contentHash", "backendModel")
+            if any(key not in item for key in required_keys):
+                checks.append("judgement-schema")
+            if not isinstance(path, str) or path not in impacted:
+                checks.append("judgement-path:" + str(path))
+            elif path in seen:
+                checks.append("judgement-duplicate:" + path)
+            else:
+                seen.add(path)
+            verdict_value = item.get("verdict")
+            if verdict_value is None:
+                failed_paths.add(path)
+                if item.get("summary") is not None or not isinstance(item.get("failure"), Mapping):
+                    checks.append("judgement-verdict:" + str(path))
+            elif verdict_value not in {"PASS", "WARN", "FAIL"} or not isinstance(item.get("summary"), str):
+                checks.append("judgement-verdict:" + str(path))
+            if not isinstance(item.get("backendModel"), str):
+                checks.append("judgement-backend:" + str(path))
+            if "evidence" in item and (
+                    not isinstance(item["evidence"], list)
+                    or any(not isinstance(value, str) for value in item["evidence"])):
+                checks.append("judgement-evidence:" + str(path))
+            if "failure" in item and not isinstance(item["failure"], Mapping):
+                checks.append("judgement-failure:" + str(path))
+            if item.get("contentHash") != _blob(snapshot.get(path)):
+                checks.append("judgement-content:" + str(path))
+            judgements.append((str(row.get("layerId")), item))
+    return checks, failed_paths, seen, judgements
+
+
 def decide(
     repo: Any,
     handle: Any,
@@ -238,47 +286,8 @@ def decide(
     impacted = {
         item.get("path") for item in scope.get("impacted", []) if isinstance(item, Mapping)
     }
-    snapshot = scope.get("snapshot", {})
-    seen: set[str] = set()
-    failed_paths: set[str] = set()
-    judgement_checks: list[str] = []
-    judgements: list[tuple[str, Mapping[str, Any]]] = []
     judgement_layer = next((row["id"] for row in registry if row["id"] == "L-DOC"), None)
-    for row in adapters:
-        for item in row.get("data", {}).get("judgements", []):
-            if row.get("layerId") != judgement_layer:
-                judgement_checks.append("judgement-layer:" + str(row.get("layerId")))
-            if not isinstance(item, Mapping):
-                judgement_checks.append("judgement-schema")
-                continue
-            path = item.get("path")
-            required_keys = ("path", "verdict", "summary", "contentHash", "backendModel")
-            if any(key not in item for key in required_keys):
-                judgement_checks.append("judgement-schema")
-            if not isinstance(path, str) or path not in impacted:
-                judgement_checks.append("judgement-path:" + str(path))
-            elif path in seen:
-                judgement_checks.append("judgement-duplicate:" + path)
-            else:
-                seen.add(path)
-            verdict_value = item.get("verdict")
-            if verdict_value is None:
-                failed_paths.add(path)
-                if item.get("summary") is not None or not isinstance(item.get("failure"), Mapping):
-                    judgement_checks.append("judgement-verdict:" + str(path))
-            elif verdict_value not in {"PASS", "WARN", "FAIL"} or not isinstance(item.get("summary"), str):
-                judgement_checks.append("judgement-verdict:" + str(path))
-            if not isinstance(item.get("backendModel"), str):
-                judgement_checks.append("judgement-backend:" + str(path))
-            if "evidence" in item and (
-                    not isinstance(item["evidence"], list)
-                    or any(not isinstance(value, str) for value in item["evidence"])):
-                judgement_checks.append("judgement-evidence:" + str(path))
-            if "failure" in item and not isinstance(item["failure"], Mapping):
-                judgement_checks.append("judgement-failure:" + str(path))
-            if item.get("contentHash") != _blob(snapshot.get(path)):
-                judgement_checks.append("judgement-content:" + str(path))
-            judgements.append((str(row.get("layerId")), item))
+    judgement_checks, failed_paths, seen, judgements = check_judgements(adapters, registry, scope)
     if judgement_checks:
         return _refused("judgement-mismatch", counts, checks=sorted(set(judgement_checks)))
 

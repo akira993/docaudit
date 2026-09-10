@@ -113,6 +113,21 @@ def _engine():
     return c_engine
 
 
+def _add_unsafe_document(root: Path, config: dict) -> str:
+    path = "docs/" + "contact" + "@" + "example.invalid" + ".md"
+    (root / path).write_text("# synthetic\n", encoding="utf-8")
+    config["impact"]["map"][0]["docs"].append(path)
+    (root / ".claude" / "docaudit.json").write_text(
+        json.dumps(config, sort_keys=True), encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=fixture", "-c", "user.email=fixture.invalid", "commit", "-m", "unsafe fixture"],
+        cwd=root, check=True, stdout=subprocess.DEVNULL,
+    )
+    return path
+
+
 def _json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -598,10 +613,13 @@ class EngineAcceptanceTests(unittest.TestCase):
 
     @acceptance("T-REPORT-1", targets=3)
     def test_report_failures_and_publish_gap_recovery(self):
-        # (a) Unsafe adapter text closes undecided; a new safe run publishes once.
+        # (a) Unsafe finding text is redacted and the report publishes.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             init_repo(root)
+
+            raw_path = "/" + "Users/" + "synthetic"
+            raw_mail = "actor" + "@" + "example.invalid"
 
             def unsafe(ctx):
                 result = _complete_adapter(ctx)
@@ -614,22 +632,54 @@ class EngineAcceptanceTests(unittest.TestCase):
                         "id": "fixture-email",
                         "severity": "WARN",
                         "blocking": False,
-                        "summary": "contact " + "actor" + "@" + "example.invalid",
+                        "summary": "contact " + raw_mail,
                     },),
                 )
 
+            def unsafe_document(ctx):
+                result = _complete_adapter(ctx)
+                rows = [dict(row) for row in result.judgements]
+                rows[0]["summary"] = raw_path
+                rows[0]["evidence"] = [raw_path]
+                return AdapterResult(
+                    layerId=result.layerId, producerId=result.producerId, status=result.status,
+                    judgements=tuple(rows), findings=result.findings,
+                )
+
             failed = _engine().run(
-                root, full=True, profile="standard", deps=_deps(adapters={"L-PROJECT": unsafe})
+                root, full=True, profile="standard",
+                deps=_deps(adapters={"L-PROJECT": unsafe, "L-DOC": unsafe_document}),
             )
-            self.assertEqual((_outcome(root, failed["runId"])["outcome"],
-                              _outcome(root, failed["runId"])["reason"]),
-                             ("undecided", "report-publish-failed"))
-            self.assertEqual(_anchor_bytes(root), {})
-            self.assertEqual(_reports(root), [])
+            self.assertEqual(_outcome(root, failed["runId"])["verdict"], "CONSISTENT")
+            report = (root / failed["reportPath"]).read_text(encoding="utf-8")
+            self.assertTrue(report)
+            self.assertEqual(report.count("## 所見"), 1)
+            self.assertIn("<path>", report)
+            self.assertIn("<email>", report)
+            self.assertIn("- redacted: 2", report)
+            self.assertFalse(any(value in report for value in _engine().c_report.FORBIDDEN_FRAGMENTS))
+            self.assertIsNone(_engine().c_report.EMAIL_RE.search(report))
+            findings = report.split("## 所見\n", 1)[1].split("\n## 判定", 1)[0]
+            self.assertEqual(len([line for line in findings.splitlines() if line.startswith("- ")]), 4)
+            ledger = (_run_dir(root, failed["runId"]) / "evidence.jsonl").read_text(encoding="utf-8")
+            self.assertIn(raw_path, ledger)
+            self.assertTrue(_anchor_bytes(root))
+            self.assertEqual(len(_reports(root)), 1)
             successful = _engine().run(root, full=True, profile="standard", deps=_deps())
             _assert_success(self, successful)
             self.assertEqual(_outcome(root, successful["runId"])["verdict"], "CONSISTENT")
-            self.assertEqual(len(_reports(root)), 1)
+            self.assertEqual(len(_reports(root)), 2)
+
+        # The final render guard still fails closed for engine-managed text.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+            with mock.patch("skills.audit.engine.c_report.render", side_effect=ValueError("report-unsafe")):
+                failed = _engine().run(root, full=True, profile="standard", deps=_deps())
+            outcome = _outcome(root, failed["runId"])
+            self.assertEqual((outcome["outcome"], outcome["reason"]), ("undecided", "report-publish-failed"))
+            self.assertEqual(_anchor_bytes(root), {})
+            self.assertEqual(_reports(root), [])
 
         # (b) A conflicting public file has the same fail-closed result.
         with tempfile.TemporaryDirectory() as directory:
@@ -741,6 +791,35 @@ class EngineRecoveryTests(unittest.TestCase):
                 (result["outcome"], result["reason"], verdict["verdict"], verdict["reason"]),
                 ("REFUSED", "evidence-tampered", "REFUSED", "evidence-tampered"),
             )
+            self.assertFalse(any(row["kind"] in {"judgement", "flip"} for row in _history(root)))
+
+    def test_tampered_non_hashable_judgement_path_closes_as_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+            altered = False
+
+            def alter_document_evidence(context):
+                nonlocal altered
+                if altered or context["layerId"] != "L-DOC":
+                    return
+                altered = True
+                ledger_path = _run_dir(root) / "evidence.jsonl"
+                rows = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+                document = next(row for row in rows if row.get("layerId") == "L-DOC")
+                document["data"]["judgements"][0]["path"] = []
+                ledger_path.write_bytes(b"".join(c_evidence.canonical_bytes(row) + b"\n" for row in rows))
+
+            result = _engine().run(
+                root, full=True, profile="standard",
+                deps=_deps(hooks={"before-layer-done": alter_document_evidence}),
+            )
+            self.assertTrue(altered)
+            self.assertEqual((result["outcome"], result["reason"]), ("REFUSED", "evidence-tampered"))
+            rows = [row for row in _history(root) if row["runId"] == result["runId"]]
+            self.assertEqual(len([row for row in rows if row["kind"] == "outcome"]), 1)
+            self.assertFalse(any(row["kind"] == "judgement" for row in rows))
+            self.assertEqual(_outcome(root, result["runId"])["judgementsSkipped"], 2)
 
     def test_tampered_complete_evidence_outranks_incomplete_tail_recovery(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1309,6 +1388,8 @@ class EngineRecoveryTests(unittest.TestCase):
                 ))
                 self.assertIsNotNone(occupied)
                 occupied.unlink()
+                ledger_path = _run_dir(root, run_id) / "evidence.jsonl"
+                ledger_path.write_text(ledger_path.read_text(encoding="utf-8").replace("fixture pass", "changed"), encoding="utf-8")
 
                 result = engine.resume(root, run_id, deps=injected)
 
@@ -1335,6 +1416,8 @@ class EngineRecoveryTests(unittest.TestCase):
             )
             self.assertEqual(_reports(root), [])
             self.assertEqual(_anchor_bytes(root), anchors_before)
+            self.assertFalse(any(row["kind"] == "judgement" and row["runId"] == run_id for row in _history(root)))
+            self.assertEqual(outcomes[0]["data"]["judgementsSkipped"], 2)
 
     def test_failed_document_judgement_is_shown_in_published_findings(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1391,6 +1474,98 @@ class EngineRecoveryTests(unittest.TestCase):
                 findings.index(failing["path"]),
                 findings.index("fixture-pathless-finding"),
             )
+
+    def test_h1_report_failure_records_redacted_judgements_but_keeps_ledger_raw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+            raw = "/" + "Users/" + "synthetic"
+
+            def adapter(ctx):
+                result = _complete_adapter(ctx)
+                rows = [dict(row, summary=raw, evidence=[raw]) for row in result.judgements]
+                return AdapterResult(result.layerId, result.producerId, result.status, judgements=tuple(rows))
+
+            with mock.patch("skills.audit.engine.c_report.render", side_effect=ValueError("report-unsafe")):
+                result = _engine().run(root, full=True, profile="standard", deps=_deps(adapters={"L-DOC": adapter}))
+            judgements = [row["data"] for row in _history(root) if row["kind"] == "judgement" and row["runId"] == result["runId"]]
+            self.assertEqual(len(judgements), 2)
+            self.assertTrue(all(row["summary"] == "`<path>`" and row["evidence"] == ["`<path>`"] for row in judgements))
+            self.assertIn(raw, (_run_dir(root, result["runId"]) / "evidence.jsonl").read_text(encoding="utf-8"))
+
+    def test_h5_gate_undecided_does_not_record_identity_invalid_judgements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repo(root)
+
+            def invalid(ctx):
+                result = _complete_adapter(ctx)
+                rows = [dict(row, contentHash="wrong") for row in result.judgements]
+                return AdapterResult(result.layerId, result.producerId, result.status, judgements=tuple(rows))
+
+            with mock.patch.object(c_evidence, "tree_diff", side_effect=c_evidence.EvidenceRejected("worktree-too-large")):
+                result = _engine().run(root, full=True, profile="standard", deps=_deps(adapters={"L-DOC": invalid}))
+            self.assertEqual((result["outcome"], result["reason"]), ("undecided", "worktree-too-large"))
+            self.assertFalse(any(row["kind"] == "judgement" and row["runId"] == result["runId"] for row in _history(root)))
+            self.assertEqual(_outcome(root, result["runId"])["judgementsSkipped"], 2)
+
+    def test_h3_unsafe_judgement_path_is_skipped_and_normal_outcome_has_no_skip_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = init_repo(root)
+            normal = _engine().run(root, full=True, profile="standard", deps=_deps())
+            self.assertNotIn("judgementsSkipped", _outcome(root, normal["runId"]))
+            unsafe_path = _add_unsafe_document(root, config)
+            result = _engine().run(root, full=True, profile="standard", deps=_deps())
+            outcome = _outcome(root, result["runId"])
+            self.assertEqual((outcome["outcome"], outcome["reason"]), ("undecided", "report-publish-failed"))
+            rows = [row["data"] for row in _history(root) if row["kind"] == "judgement" and row["runId"] == result["runId"]]
+            self.assertEqual(len(rows), 2)
+            self.assertNotIn(unsafe_path, [row["path"] for row in rows])
+            self.assertEqual(outcome["judgementsSkipped"], 1)
+
+    def test_h4_resume_does_not_duplicate_judgements_or_flip_after_finalize_interrupt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = init_repo(root)
+            _add_unsafe_document(root, config)
+            first = _engine().run(root, full=True, profile="standard", deps=_deps())
+            first_rows = [row for row in _history(root) if row["kind"] == "judgement" and row["runId"] == first["runId"]]
+            self.assertEqual(len(first_rows), 2)
+            history_path = _state(root) / "history.jsonl"
+            history = [json.loads(line) for line in history_path.read_text(encoding="utf-8").splitlines()]
+            previous = next(row for row in history if row["kind"] == "judgement" and row["runId"] == first["runId"])
+            previous["data"]["verdict"] = "FAIL"
+            history_path.write_text("".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in history), encoding="utf-8")
+            captured = []
+            real_finalize = c_history.finalize
+
+            def interrupt_once(repo, event):
+                captured.append(event)
+                if len(captured) == 1:
+                    raise InjectedStop("after judgements")
+                return real_finalize(repo, event)
+
+            engine = _engine()
+            with mock.patch.object(c_history, "finalize", side_effect=interrupt_once):
+                with self.assertRaises(InjectedStop):
+                    engine.run(root, full=True, profile="standard", deps=_deps())
+            run_id = _run_id(root)
+            stopped = [row for row in _history(root) if row["runId"] == run_id]
+            self.assertEqual(len([row for row in stopped if row["kind"] == "judgement"]), 2)
+            self.assertEqual(len([row for row in stopped if row["kind"] == "flip"]), 1)
+            self.assertLess(stopped.index(next(row for row in stopped if row["kind"] == "judgement")), stopped.index(next(row for row in stopped if row["kind"] == "flip")))
+            self.assertEqual(captured[0]["data"]["judgementsSkipped"], 1)
+            identity = ("path", "contentHash", "changeSetHash", "contractVersion", "profileName", "planHash")
+            self.assertEqual(tuple(previous["data"][key] for key in identity), tuple(stopped[0]["data"][key] for key in identity))
+            result = engine.resume(root, run_id, deps=_deps())
+            self.assertEqual((result["outcome"], result["reason"]), ("undecided", "report-publish-failed"))
+            completed = [row for row in _history(root) if row["runId"] == run_id]
+            self.assertEqual(completed[-1]["kind"], "outcome")
+            self.assertEqual(len([row for row in completed if row["kind"] == "judgement"]), 2)
+            self.assertEqual(len([row for row in completed if row["kind"] == "flip"]), 1)
+            self.assertEqual(len([row for row in completed if row["kind"] == "outcome"]), 1)
+            self.assertEqual(completed[-1]["data"]["judgementsSkipped"], 1)
 
     def test_missing_or_invalid_config_after_seal_is_gated_as_config_drift(self):
         for label in ("missing", "invalid"):

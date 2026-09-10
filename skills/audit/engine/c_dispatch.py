@@ -48,6 +48,7 @@ def _prompt(ctx, item, identity):
         f"{json.dumps(prompt_identity, ensure_ascii=False, separators=(',', ':'))}\n"
         "Read the target inside the sandbox; the document body is not included here. "
         "Judge the target document's content against the current repository state. Use read-only commands only. "
+        "Read only files inside the repository root, which is the working directory; never read, search, or cite anything outside it, including the user's home directory and global tool configuration. Cite repository-relative file:line only, cite only lines you have actually read, and never write absolute paths, home-directory paths, or email addresses in the rationale or evidence. If the document refers to a resource outside the repository, do not treat it as missing: judge only what the repository itself shows and say that the resource is outside the audit scope. "
         "A mismatch is FAIL, a minor inconsistency is WARN, and an accurate match is PASS. "
         "Cite file:line in the rationale. Return an evidence array. "
         "Do not edit any file. Return only JSON conforming to the supplied schema. "

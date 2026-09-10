@@ -14,7 +14,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 このリポジトリで /docaudit:audit --full を実行して。終わったら公開された report を開き、失敗と判定された文書を要約と一緒に列挙して。その後、それぞれについて .claude/state/docaudit/runs/<runId>/ の証拠台帳にある judgement の証拠文字列を見せて（Claude Code の agent で検証した run では requests/<seq>/judgements/ にもある）。文書は編集しないで。
 ```
 
-期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。`undecided backend-unavailable` は能力検出で backend がひとつも見つからなかったという意味で、Claude Code の外で Codex CLI が使えないときに起きます。
+期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で backend がひとつも見つからなかったという意味で、Claude Code の外で Codex CLI が使えないときに起きます。
 
 ## 2. 最初の監査の指摘を直して、もう一度
 

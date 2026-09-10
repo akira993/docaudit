@@ -14,7 +14,7 @@ Use after the configuration exists (see [ADOPTION.md](ADOPTION.md), section 4).
 Run /docaudit:audit --full in this repository. When it finishes, open the published report and list every document it marked as failing with its summary; then, for each of them, show the evidence strings of its judgement from the run's evidence ledger under .claude/state/docaudit/runs/<runId>/ (for runs verified through Claude Code agents they are also in requests/<seq>/judgements/). Do not edit any document.
 ```
 
-Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. `undecided backend-unavailable` means capability detection found no backend at all, which happens outside Claude Code without a working Codex CLI.
+Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no backend at all, which happens outside Claude Code without a working Codex CLI.
 
 ## 2. Fix what the first audit found, then repeat
 

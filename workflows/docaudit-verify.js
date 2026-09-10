@@ -128,7 +128,7 @@ retrieval: ${JSON.stringify(request.retrieval)}
 mode: ${request.mode}
 changed: ${JSON.stringify(request.changed)}
 
-Follow the docaudit verifier instructions. Run every mdq command from the mirror directory in retrieval.indexCwd, never from the repository: mdq writes .mdq/usage.jsonl under its working directory, and any other file created inside the repository other than the assigned judgement makes the run REFUSED. Persist the judgement with a single Bash heredoc to "$PWD/${document.judgementPath}" (never resolve the path yourself, never use the Write tool), read it back with cat, and only then return the same structured object.`,
+Follow the docaudit verifier instructions. Read and cite only the repository (plus the mirror and index database in retrieval.indexCwd and retrieval.indexDb); a resource outside the repository is outside the audit scope, not missing. Run every mdq command from the mirror directory in retrieval.indexCwd, never from the repository: mdq writes .mdq/usage.jsonl under its working directory, and any other file created inside the repository other than the assigned judgement makes the run REFUSED. Persist the judgement with a single Bash heredoc to "$PWD/${document.judgementPath}" (never resolve the path yourself, never use the Write tool), read it back with cat, and only then return the same structured object.`,
   {
     schema: JUDGEMENT,
     agentType: 'docaudit:doc-impact-verifier',
