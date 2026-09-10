@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.0.1 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.0.2 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 

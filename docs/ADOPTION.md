@@ -2,7 +2,7 @@
 
 日本語版: [ADOPTION.ja.md](ADOPTION.ja.md)
 
-This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.0.1 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
+This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.0.2 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
 
 Commands in this guide use the engine path of the skills-dir install, `~/.claude/skills/docaudit/skills/audit/engine`. If you installed through the marketplace, substitute the engine path given in the README's install section.
 
