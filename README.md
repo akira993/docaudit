@@ -16,33 +16,34 @@ A completed run ends in one verdict, `CONSISTENT` or `NEEDS_FIX`, backed by a pe
 
 ## Install
 
-The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, so that no files from another version remain.
+The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.0.3`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
 ```sh
-SRC=$(mktemp -d) && TAR=$(mktemp) \
+{ [ ! -e ~/.claude/skills ] || [ "$(find ~/.claude/skills/ -maxdepth 1 -name 'docaudit.*' -print -quit && echo ok)" = ok ]; } \
+  && SRC=$(mktemp -d) && TAR=$(mktemp) \
   && git clone https://github.com/akira993/docaudit "$SRC" \
   && { [ ! -e ~/.claude/skills/docaudit ] \
-       || { [ ! -e ~/.claude/skills/docaudit.before-1.0.2 ] && mv ~/.claude/skills/docaudit ~/.claude/skills/docaudit.before-1.0.2; }; } \
+       || { [ ! -e ~/.claude/docaudit.before-1.0.3 ] && mv ~/.claude/skills/docaudit ~/.claude/docaudit.before-1.0.3; }; } \
   && [ ! -e ~/.claude/skills/docaudit ] \
-  && git -C "$SRC" archive --format=tar -o "$TAR" v1.0.2 \
+  && git -C "$SRC" archive --format=tar -o "$TAR" v1.0.3 \
   && mkdir -p ~/.claude/skills/docaudit \
   && tar -x -f "$TAR" -C ~/.claude/skills/docaudit \
-  && python3 ~/.claude/skills/docaudit/skills/audit/engine --version   # prints 1.0.2
+  && python3 ~/.claude/skills/docaudit/skills/audit/engine --version
 ```
 
-The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` holds at most an unverified copy: remove that directory and move `~/.claude/skills/docaudit.before-1.0.2` back. If the backup name already exists from an earlier attempt, rename that older backup first.
+The last command prints `1.0.3`. The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` is either absent or holds an unverified copy: if it exists, rename it to a name that does not exist yet (for example `~/.claude/docaudit.unverified-1.0.3`) or delete it; then move `~/.claude/docaudit.before-1.0.3` back to `~/.claude/skills/docaudit`. If the backup name already exists from an earlier attempt, rename that older backup first.
 
-Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 1.0.2, and the skill is available as `/docaudit:audit`.
+Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 1.0.3, and the skill is available as `/docaudit:audit`.
 
-Alternatively, install through the plugin marketplace that this repository declares. Use one install method, not both: two enabled plugins with the same name have not been verified, so if `~/.claude/skills/docaudit` already exists, move it away first.
+Alternatively, install through the plugin marketplace that this repository declares. Use one install method, not both: two enabled plugins with the same name have not been verified, so if `~/.claude/skills/docaudit` already exists, move it out of `~/.claude/skills/` first.
 
 ```sh
-claude plugin marketplace add akira993/docaudit@v1.0.2 \
+claude plugin marketplace add akira993/docaudit@v1.0.3 \
   && claude plugin install docaudit@akira-plugins \
-  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/1.0.2/skills/audit/engine --version   # prints 1.0.2
+  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/1.0.3/skills/audit/engine --version
 ```
 
-Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 1.0.2. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
+The last command prints `1.0.3`. Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 1.0.3. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
 
 ## Configure the repository
 
