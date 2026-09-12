@@ -332,7 +332,7 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
     return binary, path_dir
 
 
-def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal", mdq=None):
+def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal", mdq=None, verdicts=None):
     """Write one Workflow generation as a synthetic external agent would."""
     requests = repo / ".claude" / "state" / "docaudit" / "runs" / run_id / "requests"
     candidates = [
@@ -359,7 +359,7 @@ def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal", mdq
             "attempt": request["attempt"],
             "docId": document["docId"],
             "path": document["path"],
-            "verdict": "PASS",
+            "verdict": (verdicts or {}).get(document["path"], "PASS"),
             "rationale": f"{document['path']}:1 fixture pass",
             "evidence": [f"{document['path']}:1"],
             "retrievalUsed": request["retrieval"]["method"],

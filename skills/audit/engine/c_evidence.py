@@ -374,6 +374,7 @@ def seal_manifest(repo: Any, handle: Any, inputs: Mapping[str, Any] | None = Non
         "engineVersion": values.get("engine_version", values.get("engineVersion", engine_version())),
         "startedAt": values.get("started_at", values.get("startedAt", handle.opened_at)),
         "mode": values.get("mode", scope.get("mode")),
+        "acceptBaseline": values.get("accept_baseline", values.get("acceptBaseline", False)),
         "profileName": plan["profileName"],
         "profileSelectionSource": plan["profileSelectionSource"],
         "profileTableHash": plan["profileTableHash"],
@@ -433,8 +434,13 @@ def verify_manifest(
         "allowedWritePaths", "treeDigestBefore", "maxModelCalls", "retrieval",
         "manifestHash",
     }
-    if set(manifest) != required or manifest_hash(manifest) != manifest.get("manifestHash"):
+    if set(manifest) - {"acceptBaseline"} != required or manifest_hash(manifest) != manifest.get("manifestHash"):
         return False
+    if "acceptBaseline" in manifest:
+        if type(manifest["acceptBaseline"]) is not bool:
+            return False
+        if manifest["acceptBaseline"] is True and manifest.get("mode") != "full":
+            return False
     if intent_hash is not None and intent_hash != manifest.get("manifestHash"):
         return False
     if file_hashes is not None and any(

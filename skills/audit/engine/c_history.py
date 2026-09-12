@@ -97,9 +97,12 @@ def _record_judgements_locked(repo,state,run_id,judgements):
         if previous and previous["data"].get("verdict")!=data.get("verdict") and not any(x["kind"]=="flip" and x["runId"]==run_id and x["data"].get("path")==data.get("path") for x in events):
             _append_locked(repo,events,run_id,ts,"flip",{"path":data.get("path"),"identity":list(identity),"from":previous["data"].get("verdict"),"to":data.get("verdict"),"backendTransition":previous["data"].get("backendModel")!=data.get("backendModel"),"runIds":[previous["runId"],run_id]})
     return added
+def _accepts(data):
+    return (isinstance(data.get("reportReceipt"),dict) and isinstance(data.get("anchorCandidateRef"),dict)
+            and (data.get("verdict")=="CONSISTENT" or (data.get("verdict")=="NEEDS_FIX" and data.get("acceptBaseline") is True)))
 def _eligible(event):
     data=event["data"]
-    return isinstance(data.get("reportReceipt"),dict) and data.get("verdict")=="CONSISTENT" and isinstance(data.get("anchorCandidateRef"),dict)
+    return _accepts(data)
 def _candidate(repo, event):
     ref=event["data"].get("anchorCandidateRef",{}); path=ref.get("path")
     try: raw=c_io.read_bytes(repo,path,max_bytes=ANCHOR_MAX_BYTES)
@@ -114,11 +117,13 @@ def _finalize_locked(repo,state,outcome):
     existing=next((x for x in events if x["kind"]=="outcome" and x["runId"]==run_id),None)
     candidate=data.pop("anchorCandidate",None)
     if existing is None and isinstance(candidate,dict):
+        if data.get("verdict")=="NEEDS_FIX" and data.get("acceptBaseline") is True:
+            candidate["acceptedBaseline"]=True
         raw=json.dumps(candidate,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()
         if len(raw)>ANCHOR_MAX_BYTES: raise HistoryRejected("anchor-too-large")
         path=_candidate_rel(run_id); c_io.write_atomic(repo,path,raw)
         data["anchorCandidateRef"]={"path":path,"sha256":hashlib.sha256(raw).hexdigest()}
-    data["anchorEligible"] = isinstance(data.get("reportReceipt"),dict) and data.get("verdict")=="CONSISTENT" and isinstance(data.get("anchorCandidateRef"),dict)
+    data["anchorEligible"] = _accepts(data)
     event=existing or _append_locked(repo,events,run_id,ts,"outcome",data)
     advanced=False
     if _eligible(event):
@@ -129,7 +134,10 @@ def _finalize_locked(repo,state,outcome):
             c_io.write_atomic(repo,_anchor_rel(profile),json.dumps(candidate,sort_keys=True,separators=(",",":"),ensure_ascii=False))
             advanced=True
         if not any(x["kind"]=="anchor" and x["runId"]==run_id for x in events):
-            _append_locked(repo,events,run_id,ts,"anchor",{"profileName":profile,"snapshotDigest":_candidate(repo,event).get("snapshotDigest")})
+            anchor_data={"profileName":profile,"snapshotDigest":_candidate(repo,event).get("snapshotDigest")}
+            if event["data"].get("verdict")=="NEEDS_FIX" and event["data"].get("acceptBaseline") is True:
+                anchor_data["acceptedBaseline"]=True
+            _append_locked(repo,events,run_id,ts,"anchor",anchor_data)
     return {"outcomeSeq":event["seq"],"anchorAdvanced":advanced}
 def finalize(repo,outcome_event):
     state=c_io.ensure_dir_fd(repo,c_run.STATE_REL)

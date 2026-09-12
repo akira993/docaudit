@@ -13,6 +13,7 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
     audit = sub.add_parser("audit")
     audit.add_argument("--full", action="store_true")
+    audit.add_argument("--accept-baseline", action="store_true")
     audit.add_argument("--profile", choices=tuple(row["name"] for row in PROFILE_TABLE))
     audit.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     resume = sub.add_parser("resume")
@@ -43,7 +44,7 @@ def main(argv=None) -> int:
         if args.command == "migrate":
             result = c_migrate.migrate(args.repo_root, dry_run=args.dry_run)
         elif args.command == "audit":
-            result = c_engine.run(args.repo_root, full=args.full, profile=args.profile)
+            result = c_engine.run(args.repo_root, full=args.full, profile=args.profile, accept_baseline=args.accept_baseline)
         elif args.abandon:
             c_run.abandon(args.repo_root, args.run_id)
             result = {"exitCode": 0, "nextAction": "done", "runId": args.run_id,

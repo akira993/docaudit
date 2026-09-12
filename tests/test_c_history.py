@@ -1,14 +1,17 @@
 import tempfile
 import unittest
 import json
+import hashlib
 from pathlib import Path
 from unittest import mock
 from skills.audit.engine import c_history
 from skills.audit.engine import c_io, c_run
 from .acceptance import acceptance
-def outcome(run,profile,verdict,receipt=True):
+def outcome(run,profile,verdict,receipt=True,accept_baseline=False):
  anchor={"runId":run,"acceptedAt":"t","contractVersion":"1.0","headCommit":None,"snapshot":{},"documents":[],"snapshotDigest":run}
- return {"runId":run,"ts":"t","data":{"profileName":profile,"verdict":verdict,"reportReceipt":{} if receipt else None,"anchorCandidate":anchor}}
+ data={"profileName":profile,"verdict":verdict,"reportReceipt":{} if receipt else None,"anchorCandidate":anchor}
+ if accept_baseline: data["acceptBaseline"]=True
+ return {"runId":run,"ts":"t","data":data}
 class HistoryTests(unittest.TestCase):
  def test_unknown_history_kind_is_retained(self):
   with tempfile.TemporaryDirectory() as root:
@@ -31,6 +34,30 @@ class HistoryTests(unittest.TestCase):
     after=(Path(root)/".claude/state/docaudit/anchors/p.json").read_bytes() if (Path(root)/".claude/state/docaudit/anchors/p.json").exists() else None
     self.assertNotEqual(before,after) if i==0 else self.assertEqual(before,after)
    rows=list(c_history.read_history(root)); self.assertEqual(len([x for x in rows if x["kind"]=="outcome"]),4); self.assertEqual(len([x for x in rows if x["kind"]=="anchor"]),1)
+ @acceptance("T-HISTORY-2",targets=7)
+ def test_accepted_baseline_finalization(self):
+  with tempfile.TemporaryDirectory() as root:
+   event=outcome("accepted","p","NEEDS_FIX",accept_baseline=True); c_history.finalize(root,event)
+   anchor=c_history.read_anchor(root,"p"); self.assertTrue(anchor["acceptedBaseline"])
+   rows=list(c_history.read_history(root)); saved=next(x for x in rows if x["kind"]=="outcome"); self.assertTrue(saved["data"]["anchorEligible"])
+   candidate=Path(root,saved["data"]["anchorCandidateRef"]["path"]).read_bytes(); self.assertEqual(hashlib.sha256(candidate).hexdigest(),saved["data"]["anchorCandidateRef"]["sha256"])
+   self.assertTrue(next(x for x in rows if x["kind"]=="anchor")["data"]["acceptedBaseline"])
+  with tempfile.TemporaryDirectory() as root:
+   c_history.finalize(root,outcome("refused","p","REFUSED",True,True)); c_history.finalize(root,outcome("missing","p","NEEDS_FIX",False,True)); self.assertIsNone(c_history.read_anchor(root,"p"))
+  with tempfile.TemporaryDirectory() as root:
+   event=outcome("undecided","p","",True,True); event["data"].pop("verdict"); event["data"].update({"outcome":"undecided","reason":"x"}); c_history.finalize(root,event); self.assertIsNone(c_history.read_anchor(root,"p"))
+  with tempfile.TemporaryDirectory() as root:
+   c_history.finalize(root,outcome("consistent","p","CONSISTENT",True,True)); anchor=c_history.read_anchor(root,"p"); self.assertNotIn("acceptedBaseline",anchor); self.assertNotIn("acceptedBaseline",next(x for x in c_history.read_history(root) if x["kind"]=="anchor")["data"])
+  with tempfile.TemporaryDirectory() as root:
+   event=outcome("retry","p","NEEDS_FIX",True,True); c_history.finalize(root,event); row=next(x for x in c_history.read_history(root) if x["kind"]=="outcome"); candidate=Path(root,row["data"]["anchorCandidateRef"]["path"]); before=(candidate.read_bytes(),row["data"]["anchorCandidateRef"]["sha256"],Path(root,".claude/state/docaudit/anchors/p.json").read_bytes()); c_history.finalize(root,event); row=next(x for x in c_history.read_history(root) if x["kind"]=="outcome"); self.assertEqual(before,(candidate.read_bytes(),row["data"]["anchorCandidateRef"]["sha256"],Path(root,".claude/state/docaudit/anchors/p.json").read_bytes()))
+  with tempfile.TemporaryDirectory() as root:
+   event=outcome("reconcile","p","NEEDS_FIX",True,True); real=c_io.write_atomic
+   def fail(repo,rel,data):
+    if rel.endswith("anchors/p.json"): raise OSError("x")
+    return real(repo,rel,data)
+   with mock.patch.object(c_io,"write_atomic",side_effect=fail):
+    with self.assertRaises(OSError): c_history.finalize(root,event)
+   c_history.reconcile(root,"reconcile"); self.assertTrue(c_history.read_anchor(root,"p")["acceptedBaseline"])
  @acceptance("T-BACKEND-3",targets=2)
  def test_flips(self):
   with tempfile.TemporaryDirectory() as root:

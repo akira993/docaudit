@@ -16,15 +16,15 @@ def acceptance(test_id: str, targets: int):
 
 
 def design_ids():
-    # tests/design_ids.txt holds the 36 design acceptance IDs, in the canonical order of the
+    # tests/design_ids.txt holds the 37 design acceptance IDs, in the canonical order of the
     # 1.0.0 acceptance criteria.
     listing = Path(__file__).parent / "design_ids.txt"
     lines = listing.read_text(encoding="utf-8").splitlines()
     ids = list(dict.fromkeys(line.strip() for line in lines if line.strip() and not line.startswith("#")))
     if any(not re.fullmatch(r"T-[A-Z]+-\d+", i) for i in ids):
         raise ValueError("tests/design_ids.txt contains a malformed ID")
-    if len(ids) != 36:
-        raise ValueError(f"expected 36 design IDs, found {len(ids)}")
+    if len(ids) != 37:
+        raise ValueError(f"expected 37 design IDs, found {len(ids)}")
     return ids
 
 

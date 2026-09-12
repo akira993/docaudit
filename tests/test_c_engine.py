@@ -92,6 +92,14 @@ def _complete_adapter(ctx):
     )
 
 
+def _one_failure(ctx):
+    result = _complete_adapter(ctx)
+    if ctx["layer_id"] != "L-DOC" or not result.judgements:
+        return result
+    rows = list(result.judgements); rows[0] = dict(rows[0], verdict="FAIL", summary="fixture document failure")
+    return AdapterResult(result.layerId, result.producerId, result.status, judgements=tuple(rows))
+
+
 def _deps(*, adapters=None, hooks=None, clock=None) -> EngineDeps:
     selected = {layer: _complete_adapter for layer in ALL_LAYERS}
     if adapters:
@@ -2252,6 +2260,359 @@ class P4BudgetEngineTests(unittest.TestCase):
             self.assertEqual(calls, ["L-DOC"])
             self.assertEqual((len(adapters), result["reason"]), (3, "model-call-limit"))
             self.assertTrue(next(row for row in adapters if row["layerId"] == "L-DOC")["observations"]["skipped"])
+
+
+class AcceptBaselineEngineTests(unittest.TestCase):
+    def test_accept_baseline_a(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); run_id=result["runId"]
+            self.assertTrue(_json(_state(root)/"anchors"/"standard.json")["acceptedBaseline"])
+            self.assertTrue(_json(_run_dir(root,run_id)/"manifest.json")["acceptBaseline"])
+            report=_reports(root)[0].read_text(); self.assertIn("--accept-baseline による受理",report.split("## Anchor",1)[1])
+            data=_outcome(root,run_id); self.assertTrue(data["acceptBaseline"]); self.assertTrue(data["anchorEligible"])
+            self.assertTrue(next(x for x in _history(root) if x["kind"]=="anchor")["data"]["acceptedBaseline"])
+
+    def test_accept_baseline_b_and_c(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            result=_engine().run(root,full=True,profile="standard",deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); data=_outcome(root,result["runId"]); self.assertNotIn("acceptBaseline",data); self.assertFalse(data["anchorEligible"])
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); before=list((_state(root)/"runs").iterdir()) if (_state(root)/"runs").exists() else []
+            result=_engine().run(root,full=False,profile="standard",accept_baseline=True,deps=_deps())
+            after=list((_state(root)/"runs").iterdir()) if (_state(root)/"runs").exists() else []
+            self.assertEqual((result["nextAction"],result["reason"],result["exitCode"],len(after)),("abort","accept-baseline-requires-full",3,len(before)))
+
+    def test_accept_baseline_d(self):
+        def project_failure(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-PROJECT": return AdapterResult(result.layerId,result.producerId,result.status,findings=({"id":"x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-PROJECT":project_failure}))
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); self.assertIn("文書判定以外の blocking を受理しない",_reports(root)[0].read_text()); self.assertNotIn("acceptBaseline",_outcome(root,result["runId"]))
+
+    def test_accept_baseline_e1_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=[]
+            def stop(context):
+                run_dir=_run_dir(root,context["runId"]); self.assertFalse((run_dir/"manifest.json").exists()); self.assertFalse(any(json.loads(x)["kind"]=="manifest-intent" for x in (run_dir/"journal.jsonl").read_text().splitlines())); stopped.append(True); raise InjectedStop("capability-detected")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"capability-detected":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+            run_id=_run_id(root); result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertTrue(_json(_run_dir(root,run_id)/"manifest.json")["acceptBaseline"]); self.assertTrue(_json(_state(root)/"anchors"/"standard.json")["acceptedBaseline"])
+
+    def test_accept_baseline_d2(self):
+        def project_failure(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-PROJECT": return AdapterResult(result.layerId,result.producerId,result.status,findings=({"id":"x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure,"L-PROJECT":project_failure}))
+            data=_outcome(root,result["runId"]); anchor=_reports(root)[0].read_text().split("## Anchor",1)[1]
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); self.assertIn("文書判定以外の blocking を受理しない",anchor); self.assertNotIn("acceptBaseline",data); self.assertFalse(data["anchorEligible"])
+
+    def test_accept_baseline_d3(self):
+        def doc_finding(ctx):
+            result=_one_failure(ctx)
+            if ctx["layer_id"]=="L-DOC": return AdapterResult(result.layerId,result.producerId,result.status,judgements=result.judgements,findings=({"id":"doc-x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":doc_finding}))
+            data=_outcome(root,result["runId"]); anchor=_reports(root)[0].read_text().split("## Anchor",1)[1]
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); self.assertIn("文書判定以外の blocking を受理しない",anchor); self.assertNotIn("acceptBaseline",data); self.assertFalse(data["anchorEligible"])
+
+    def test_accept_baseline_d4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            def alter_config():
+                path=root/".claude"/"docaudit.json"; value=_json(path); value["impact"]["maxImpactedDocs"]+=1; path.write_text(json.dumps(value,sort_keys=True),encoding="utf-8")
+            result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(hooks={"sealed":alter_config}))
+            verdict=_json(_run_dir(root,result["runId"])/"verdict.json"); anchor=_reports(root)[0].read_text().split("## Anchor",1)[1].split("## 計測",1)[0]; data=_outcome(root,result["runId"])
+            self.assertEqual(verdict["verdict"],"REFUSED"); self.assertEqual(anchor.strip(),"- 前進条件を満たさない"); self.assertNotIn("文書判定以外",anchor); self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); self.assertNotIn("acceptBaseline",data)
+
+    def test_accept_baseline_f(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root)
+            with mock.patch("skills.audit.engine.c_report.render",side_effect=ValueError("report-unsafe")):
+                result=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            data=_outcome(root,result["runId"])
+            self.assertEqual((result["outcome"],result["reason"]),("undecided","report-publish-failed")); self.assertNotIn("acceptBaseline",data); self.assertFalse(data["anchorEligible"]); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e3(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual(interrupted["exitCode"],4); result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertTrue(_json(_state(root)/"anchors"/"standard.json")["acceptedBaseline"]); self.assertTrue(any(x["kind"]=="anchor" and x["runId"]==interrupted["runId"] for x in _history(root)))
+
+    def test_accept_baseline_e5(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            path=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in path.read_text().splitlines()]
+            row=next(x for x in rows if x["kind"]=="outcome" and x["runId"]==interrupted["runId"]); row["data"].pop("acceptBaseline"); row["data"]["anchorEligible"]=False
+            path.write_text("".join(json.dumps(x,sort_keys=True,separators=(",",":"))+"\n" for x in rows),encoding="utf-8")
+            result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e6(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",deps=deps)
+            run_id=_run_id(root); path=_run_dir(root,run_id)/"manifest.json"; manifest=_json(path); manifest["reportPath"]="reports/tampered.md"; path.write_text(json.dumps(manifest,sort_keys=True),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-gated")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-gated":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"manifest.json"; manifest=_json(path); manifest.pop("acceptBaseline"); manifest["manifestHash"]=c_evidence.manifest_hash(manifest); path.write_text(json.dumps(manifest,sort_keys=True,separators=(",",":")),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines()]
+            next(x for x in rows if x["kind"]=="manifest-intent")["data"]["manifestHash"]=manifest["manifestHash"]
+            sealed=next(x for x in rows if x["kind"]=="sealed"); sealed["data"]["manifestHash"]=manifest["manifestHash"]; sealed["data"]["sha256"]=hashlib.sha256(path.read_bytes()).hexdigest()
+            journal.write_text("".join(json.dumps(x,sort_keys=True,separators=(",",":"))+"\n" for x in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps); data=_outcome(root,run_id)
+            self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertFalse((_state(root)/"anchors"/"standard.json").exists()); self.assertNotIn("acceptBaseline",data)
+
+    def test_accept_baseline_e2(self):
+        from .fixtures import simulate_external
+        with tempfile.TemporaryDirectory() as directory:
+            from skills.audit.engine import c_workflow
+            root=Path(directory); init_repo(root); deps=_deps(adapters={"L-DOC":c_workflow.adapter}); deps.capability_resolver=lambda directive, env: _workflow_available()
+            with mock.patch.dict(os.environ,{"CLAUDECODE":"1"}):
+                started=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+                self.assertEqual(started["nextAction"],"invoke-workflow"); simulate_external(root,started["runId"],verdicts={"docs/a.md":"FAIL"})
+                result=_engine().resume(root,started["runId"],deps=deps)
+            data=_outcome(root,started["runId"]); self.assertEqual(result["outcome"],"NEEDS_FIX"); self.assertTrue(data["acceptBaseline"]); self.assertTrue(_json(_state(root)/"anchors"/"standard.json")["acceptedBaseline"])
+
+    def _accepted_scope_case(self, regression, maximum):
+        directory=tempfile.TemporaryDirectory(); self.addCleanup(directory.cleanup); root=Path(directory.name); config=init_repo(root)
+        config["changes"]["regressionRecheck"]=regression; config["impact"]["maxImpactedDocs"]=maximum; (root/".claude"/"docaudit.json").write_text(json.dumps(config,sort_keys=True),encoding="utf-8")
+        baseline=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+        self.assertEqual(baseline["outcome"],"NEEDS_FIX"); self.assertEqual(next(x["data"]["path"] for x in _history(root) if x["kind"]=="judgement" and x["runId"]==baseline["runId"] and x["data"]["verdict"]=="FAIL"),"docs/a.md")
+        before=(_state(root)/"anchors"/"standard.json").read_bytes(); (root/"docs"/"b.md").write_text("# B changed\n",encoding="utf-8"); seen=[]
+        def record_pass(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-DOC": seen.extend(item["path"] for item in ctx["scope"]["impacted"])
+            return result
+        result=_engine().run(root,profile="standard",deps=_deps(adapters={"L-DOC":record_pass}))
+        return root, baseline, before, seen, result
+
+    def test_accept_baseline_scope_i(self):
+        root,_baseline,_before,seen,result=self._accepted_scope_case(False,20)
+        self.assertEqual((set(seen),result["outcome"]),({"docs/b.md"},"CONSISTENT"))
+
+    def test_accept_baseline_scope_ii(self):
+        root,_baseline,_before,seen,result=self._accepted_scope_case(True,20)
+        self.assertEqual((set(seen),result["outcome"]),({"docs/a.md","docs/b.md"},"CONSISTENT")); impacted=_json(_run_dir(root,result["runId"])/"scope.json")["impacted"]; self.assertIn("regression",next(x for x in impacted if x["path"]=="docs/a.md")["provenance"])
+
+    def test_accept_baseline_scope_iii(self):
+        root,_baseline,before,seen,result=self._accepted_scope_case(True,1)
+        self.assertEqual((result["outcome"],result["reason"],seen),("undecided","impact-limit",[])); self.assertEqual((_state(root)/"anchors"/"standard.json").read_bytes(),before)
+
+    def test_accept_baseline_scope_iv(self):
+        root,_baseline,_before,seen,result=self._accepted_scope_case(True,2)
+        self.assertEqual((set(seen),result["outcome"]),({"docs/a.md","docs/b.md"},"CONSISTENT")); self.assertEqual(len(seen),2)
+
+    def test_accept_baseline_e7(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            path=_run_dir(root,interrupted["runId"])/"verdict.json"; verdict=_json(path); verdict["blocking"]=[]; path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e8(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            path=_run_dir(root,interrupted["runId"])/"verdict.json"; verdict=_json(path); verdict["blocking"]=[]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e9(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            run_dir=_run_dir(root,interrupted["runId"]); journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines() if json.loads(line)["kind"]!="verdict-intent"]
+            for seq,row in enumerate(rows,1): row["seq"]=seq
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            path=run_dir/"verdict.json"; verdict=_json(path); verdict["blocking"]=[]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e9b(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); real=c_io.write_atomic; failed=False
+            def fail_anchor(repo,rel,data):
+                nonlocal failed
+                if not failed and rel.endswith("/anchors/standard.json"): failed=True; raise OSError("fixture anchor interruption")
+                return real(repo,rel,data)
+            with mock.patch.object(c_io,"write_atomic",side_effect=fail_anchor):
+                interrupted=_engine().run(root,full=True,profile="standard",accept_baseline=True,deps=_deps(adapters={"L-DOC":_one_failure}))
+            run_dir=_run_dir(root,interrupted["runId"]); journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines()]
+            next(row for row in rows if row["kind"]=="verdict-intent")["data"].pop("gateHash")
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            path=run_dir/"verdict.json"; verdict=_json(path); verdict["blocking"]=[]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            result=_engine().resume(root,interrupted["runId"],deps=_deps(adapters={"L-DOC":_one_failure}))
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e10(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"manifest.json"; manifest=_json(path); manifest["acceptBaseline"]=True; manifest["manifestHash"]=c_evidence.manifest_hash(manifest); path.write_text(json.dumps(manifest,sort_keys=True),encoding="utf-8")
+            history=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in history.read_text().splitlines()]; outcome=next(row for row in rows if row["kind"]=="outcome" and row["runId"]==run_id); outcome["data"]["acceptBaseline"]=True; outcome["data"]["anchorEligible"]=True; history.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines() if json.loads(line)["kind"]!="manifest-intent"]
+            for seq,row in enumerate(rows,1): row["seq"]=seq
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e10b(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"manifest.json"; manifest=_json(path); manifest["acceptBaseline"]=True; manifest["manifestHash"]=c_evidence.manifest_hash(manifest); path.write_text(json.dumps(manifest,sort_keys=True),encoding="utf-8")
+            history=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in history.read_text().splitlines()]; outcome=next(row for row in rows if row["kind"]=="outcome" and row["runId"]==run_id); outcome["data"]["acceptBaseline"]=True; outcome["data"]["anchorEligible"]=True; history.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines()]; next(row for row in rows if row["kind"]=="manifest-intent")["data"].pop("manifestHash"); journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e11(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-gated")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-gated":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"manifest.json"; manifest=_json(path); manifest["acceptBaseline"]=True; manifest["manifestHash"]=c_evidence.manifest_hash(manifest); path.write_text(json.dumps(manifest,sort_keys=True),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines() if json.loads(line)["kind"]!="manifest-intent"]
+            for seq,row in enumerate(rows,1): row["seq"]=seq
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(0,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e11b(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-gated")
+            deps=_deps(adapters={"L-DOC":_one_failure},hooks={"before-gated":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"manifest.json"; manifest=_json(path); manifest["acceptBaseline"]=True; manifest["manifestHash"]=c_evidence.manifest_hash(manifest); path.write_text(json.dumps(manifest,sort_keys=True),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines()]; next(row for row in rows if row["kind"]=="manifest-intent")["data"]["manifestHash"]=manifest["manifestHash"]
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(0,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e12(self):
+        def project_failure(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-PROJECT": return AdapterResult(result.layerId,result.producerId,result.status,findings=({"id":"x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure,"L-PROJECT":project_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"verdict.json"; verdict=_json(path); verdict["blocking"]=[item for item in verdict["blocking"] if item["layerId"]!="L-PROJECT"]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            history=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in history.read_text().splitlines()]; outcome=next(row for row in rows if row["kind"]=="outcome" and row["runId"]==run_id); outcome["data"]["acceptBaseline"]=True; outcome["data"]["anchorEligible"]=True; history.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines()]; next(row for row in rows if row["kind"]=="verdict-intent")["data"]["gateHash"]=verdict["gateHash"]; journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e13(self):
+        def project_failure(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-PROJECT": return AdapterResult(result.layerId,result.producerId,result.status,findings=({"id":"x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure,"L-PROJECT":project_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"verdict.json"; verdict=_json(path); verdict["blocking"]=[item for item in verdict["blocking"] if item["layerId"]!="L-PROJECT"]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            history=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in history.read_text().splitlines()]; outcome=next(row for row in rows if row["kind"]=="outcome" and row["runId"]==run_id); outcome["data"]["acceptBaseline"]=True; outcome["data"]["anchorEligible"]=True; history.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines() if json.loads(line)["kind"]!="gated"]; next(row for row in rows if row["kind"]=="verdict-intent")["data"]["gateHash"]=verdict["gateHash"]
+            for seq,row in enumerate(rows,1): row["seq"]=seq
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
+
+    def test_accept_baseline_e13b(self):
+        def project_failure(ctx):
+            result=_complete_adapter(ctx)
+            if ctx["layer_id"]=="L-PROJECT": return AdapterResult(result.layerId,result.producerId,result.status,findings=({"id":"x","severity":"FAIL","blocking":True,"summary":"x"},))
+            return result
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); init_repo(root); stopped=False
+            def stop(_context):
+                nonlocal stopped
+                if not stopped: stopped=True; raise InjectedStop("before-recorded")
+            deps=_deps(adapters={"L-DOC":_one_failure,"L-PROJECT":project_failure},hooks={"before-recorded":stop})
+            with self.assertRaises(InjectedStop): _engine().run(root,full=True,profile="standard",accept_baseline=True,deps=deps)
+            run_id=_run_id(root); run_dir=_run_dir(root,run_id); path=run_dir/"verdict.json"; verdict=_json(path); verdict["blocking"]=[item for item in verdict["blocking"] if item["layerId"]!="L-PROJECT"]; verdict["gateHash"]=c_evidence.gate_hash(verdict); path.write_text(json.dumps(verdict,sort_keys=True),encoding="utf-8")
+            history=_state(root)/"history.jsonl"; rows=[json.loads(line) for line in history.read_text().splitlines()]; outcome=next(row for row in rows if row["kind"]=="outcome" and row["runId"]==run_id); outcome["data"]["acceptBaseline"]=True; outcome["data"]["anchorEligible"]=True; history.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            journal=run_dir/"journal.jsonl"; rows=[json.loads(line) for line in journal.read_text().splitlines() if json.loads(line)["kind"]!="sealed"]; next(row for row in rows if row["kind"]=="verdict-intent")["data"]["gateHash"]=verdict["gateHash"]
+            for seq,row in enumerate(rows,1): row["seq"]=seq
+            journal.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows),encoding="utf-8")
+            result=_engine().resume(root,run_id,deps=deps)
+            self.assertEqual((result["exitCode"],result["reason"]),(4,"seal-drift")); self.assertFalse((_state(root)/"anchors"/"standard.json").exists())
 
 
 if __name__ == "__main__":

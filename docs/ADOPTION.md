@@ -2,7 +2,7 @@
 
 日本語版: [ADOPTION.ja.md](ADOPTION.ja.md)
 
-This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.0.3 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
+This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.1.0 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
 
 Commands in this guide use the engine path of the skills-dir install, `~/.claude/skills/docaudit/skills/audit/engine`. If you installed through the marketplace, substitute the engine path given in the README's install section.
 
@@ -11,7 +11,7 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 1. Install the plugin once (README, "Install") and start a new Claude Code session.
 2. In the repository, create `.claude/docaudit.json` (section 4) and commit it.
 3. Run `/docaudit:audit --full`. Read the report it publishes and fix the documents it flags.
-4. Repeat `/docaudit:audit --full` until the run ends `CONSISTENT`. That run writes the first anchor.
+4. Repeat `/docaudit:audit --full` until the run ends `CONSISTENT`. That run writes the first anchor. If `NEEDS_FIX` is blocked only by document judgements, `/docaudit:audit --full --accept-baseline` accepts the baseline and enables later incremental runs. It cannot accept broken local links, failed project checks, or any other non-document blocking finding; fix those findings in the report first.
 5. From then on run `/docaudit:audit` after changes. Only the documents impacted by what changed are verified.
 
 Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
@@ -105,6 +105,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 
 - Anchors are kept per profile under `.claude/state/docaudit/anchors/`.
 - The first anchor of a profile is written by the first full run of that profile that ends `CONSISTENT`. Until then, an incremental run of that profile ends `undecided anchor-missing`, so keep using `--full`.
+- A full `NEEDS_FIX` run with `--accept-baseline` also writes its first anchor when every blocking item is an `L-DOC` judgement and its report was published. A known FAIL document is then not rechecked only when it is not impacted by `impact.map`, `ssotSources`, or heuristics and `changes.regressionRecheck` is disabled. Set `changes.regressionRecheck: true` to recheck the profile's latest FAIL documents each time; they count toward `impact.maxImpactedDocs`, stop the whole run with `impact-limit` when exceeded, and do not leave that set until they pass. Non-document blocking findings are never accepted: in `standard`, fix broken links and project checks; in `extended`, also fix security, adversarial, and claim blocking findings.
 - Every later run of the profile that ends `CONSISTENT` advances the anchor. A `NEEDS_FIX`, `undecided`, or `REFUSED` run leaves it unchanged, so the next incremental run measures the same changes again, plus anything new.
 - Switching profiles starts a new lifecycle: a `focused` anchor does not serve a `standard` run.
 
@@ -148,6 +149,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 |---|---|---|
 | `CONSISTENT` | every impacted document matches and no blocking finding | nothing; the anchor advanced |
 | `NEEDS_FIX` | at least one document fails, or a blocking finding (a broken link, a failed project check, a confirmed claim) | fix what the report names, run again |
+| `NEEDS_FIX` (`--full --accept-baseline` accepted) | failures are document judgements only | the anchor advanced; known FAIL documents are rechecked when they change |
 | `undecided anchor-missing` | incremental run without an anchor | run with `--full` |
 | `undecided backend-unavailable` | capability detection found no usable backend: no Codex, and not inside Claude Code | install or fix Codex, or run inside Claude Code |
 | `undecided impact-limit` | more impacted documents than `impact.maxImpactedDocs` | narrow the map or raise the limit, or run `--full` |

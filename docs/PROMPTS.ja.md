@@ -14,7 +14,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 このリポジトリで /docaudit:audit --full を実行して。終わったら公開された report を開き、失敗と判定された文書を要約と一緒に列挙して。その後、それぞれについて .claude/state/docaudit/runs/<runId>/ の証拠台帳にある judgement の証拠文字列を見せて（Claude Code の agent で検証した run では requests/<seq>/judgements/ にもある）。文書は編集しないで。
 ```
 
-期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で backend がひとつも見つからなかったという意味で、Claude Code の外で Codex CLI が使えないときに起きます。
+期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で backend がひとつも見つからなかったという意味で、Claude Code の外で Codex CLI が使えないときに起きます。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
 
 ## 2. 最初の監査の指摘を直して、もう一度
 
@@ -30,7 +30,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 直前の commit で file を変更した。/docaudit:audit を実行して、影響を受けた文書・verdict・report の path を教えて。
 ```
 
-期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full` で実行してください。`undecided impact-limit` は変更の影響文書が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか impact map を絞ります。
+期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更の影響文書が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか impact map を絞ります。
 
 ## 4. focused profile での素早い確認
 
@@ -67,7 +67,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 ## 7. undecided や REFUSED の結果を理解する
 
 ```
-直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.0.3 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
+直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.1.0 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
 ```
 
 期待: 説明と次の一手。よくある場合: `anchor-missing`（`--full` で実行）、`worktree-modified`（監査中に何かがリポジトリへ書き込んだ。他のツールを止めて再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。

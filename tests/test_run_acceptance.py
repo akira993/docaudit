@@ -83,7 +83,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
         source = "from tests.acceptance import acceptance\nimport unittest\nclass T(unittest.TestCase):\n @acceptance('T-SAFE-1', targets=1)\n def test_ok(self): pass\n @acceptance('T-SAFE-1', targets=1)\n def test_bad(self): self.fail()\n"
         r = self.invoke(source, "--expect", "foundation", "--allow-missing")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("設計 36 件: 合格 0・失敗 1", r.stdout)
+        self.assertIn("設計 37 件: 合格 0・失敗 1", r.stdout)
 
     def test_early_implementation_is_failure(self):
         r = self.invoke("from tests.acceptance import acceptance\nimport unittest\nclass T(unittest.TestCase):\n @acceptance('T-MIGRATE-1', targets=1)\n def test_ok(self): pass\n", "--expect", "foundation", "--allow-missing")

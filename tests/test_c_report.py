@@ -27,6 +27,10 @@ class ReportTests(unittest.TestCase):
   undecided=c_report.render(base|{"outcome":"undecided","reason":"backend-unavailable"})
   section=undecided.split("## 判定\n",1)[1].split("\n## Anchor",1)[0]
   self.assertIn("- 判定できず",section); self.assertIn("- reason: backend-unavailable",section)
+ def test_accept_baseline_anchor_messages_are_safe(self):
+  base={"runId":"20260101T000000Z-x","profileName":"p","mode":"full","verdict":"NEEDS_FIX","acceptBaseline":True}
+  self.assertIn("--accept-baseline による受理",c_report.render(base|{"anchorEligible":True}))
+  self.assertIn("文書判定以外",c_report.render(base|{"anchorEligible":False}))
  def test_nested_gate_result_is_rendered(self):
   text=c_report.render({"runId":"20260101T000000Z-x","profileName":"p","verdict":{"verdict":"REFUSED","reason":"config-drift","refusedChecks":["configHash"]}})
   self.assertIn("- reason: config-drift",text); self.assertIn("- refusedChecks: configHash",text)

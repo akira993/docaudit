@@ -14,7 +14,7 @@ Use after the configuration exists (see [ADOPTION.md](ADOPTION.md), section 4).
 Run /docaudit:audit --full in this repository. When it finishes, open the published report and list every document it marked as failing with its summary; then, for each of them, show the evidence strings of its judgement from the run's evidence ledger under .claude/state/docaudit/runs/<runId>/ (for runs verified through Claude Code agents they are also in requests/<seq>/judgements/). Do not edit any document.
 ```
 
-Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no backend at all, which happens outside Claude Code without a working Codex CLI.
+Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no backend at all, which happens outside Claude Code without a working Codex CLI. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
 
 ## 2. Fix what the first audit found, then repeat
 
@@ -30,7 +30,7 @@ Expected: `CONSISTENT` once every document passes and no blocking finding remain
 I changed the files in the last commit. Run /docaudit:audit and tell me which documents were impacted, the verdict, and the report path.
 ```
 
-Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, or narrow the impact map.
+Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, or narrow the impact map.
 
 ## 4. Quick check with the focused profile
 
@@ -67,7 +67,7 @@ Expected: the dry run exits 0 with `convertible`, or with `unchanged` when a com
 ## 7. Understand an undecided or REFUSED result
 
 ```
-The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.0.3 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
+The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.1.0 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
 ```
 
 Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full`), `worktree-modified` (something wrote into the repository during the audit; run again without other tools active), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).

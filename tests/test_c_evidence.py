@@ -277,6 +277,7 @@ class EvidenceTests(unittest.TestCase):
                     "scopeHash", "configSnapshotFileHash", "scopeFileHash", "planFileHash",
                     "capabilityFileHash", "changeSetHash", "corpusDigest", "reportPath",
                     "allowedWritePaths", "treeDigestBefore", "maxModelCalls", "retrieval",
+                    "acceptBaseline",
                     "manifestHash",
                 })
                 self.assertEqual(manifest["retrieval"], {
@@ -288,6 +289,18 @@ class EvidenceTests(unittest.TestCase):
                 self.assertEqual(manifest["configSnapshotFileHash"], c_evidence.sha256_bytes(config_snapshot))
             finally:
                 os.close(handle.state_dir_fd)
+
+    def test_manifest_accept_baseline_is_optional_and_constrained(self):
+        required = {"runId", "contractVersion", "engineVersion", "startedAt", "mode", "profileName", "profileSelectionSource", "profileTableHash", "registryHash", "enabledLayers", "planHash", "backendDirective", "resolvedBackendModel", "capabilityResultHash", "anchorProfile", "configHash", "configSnapshotHash", "scopeHash", "configSnapshotFileHash", "scopeFileHash", "planFileHash", "capabilityFileHash", "changeSetHash", "corpusDigest", "reportPath", "allowedWritePaths", "treeDigestBefore", "maxModelCalls", "retrieval", "manifestHash"}
+        base = {key: None for key in required}; base["mode"] = "full"
+        def sealed(**changes):
+            value = dict(base); value.update(changes); value["manifestHash"] = c_evidence.manifest_hash(value); return value
+        self.assertTrue(c_evidence.verify_manifest(sealed()))
+        self.assertTrue(c_evidence.verify_manifest(sealed(acceptBaseline=False)))
+        self.assertTrue(c_evidence.verify_manifest(sealed(acceptBaseline=True)))
+        self.assertFalse(c_evidence.verify_manifest(sealed(mode="incremental", acceptBaseline=True)))
+        self.assertFalse(c_evidence.verify_manifest(sealed(acceptBaseline="yes")))
+        self.assertFalse(c_evidence.verify_manifest(sealed(unknown=True)))
 
 
 if __name__ == "__main__":

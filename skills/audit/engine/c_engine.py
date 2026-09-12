@@ -273,6 +273,21 @@ def _guard_stage2(
     return allowed
 
 
+def _verify_recorded(journal, raw, value, *, intent_kind, done_kind, hash_key, require_done=False):
+    intent = _event(journal, intent_kind)
+    expected = intent.get("data", {}).get(hash_key) if intent else None
+    if not isinstance(expected, str) or value.get(hash_key) != expected:
+        return False
+    done = _event(journal, done_kind)
+    if require_done and done is None:
+        return False
+    if done is not None:
+        data = done.get("data", {})
+        if data.get(hash_key) != expected or data.get("sha256") != _sha(raw):
+            return False
+    return True
+
+
 def _recover_manifest(repo, handle, dependencies, journal, expected_allowed):
     sealed = _event(journal, "sealed")
     raw = _read_optional(handle.state_dir_fd, handle.run_id, "manifest.json")
@@ -286,7 +301,9 @@ def _recover_manifest(repo, handle, dependencies, journal, expected_allowed):
             raise EngineRejected("seal-drift") from exc
         if not isinstance(value, dict):
             raise EngineRejected("seal-drift")
-        if not c_evidence.verify_manifest(value, intent_hash=intent.get("data", {}).get("manifestHash") if intent else None):
+        if (not _verify_recorded(journal, raw, value, intent_kind="manifest-intent",
+                                 done_kind="sealed", hash_key="manifestHash")
+                or not c_evidence.verify_manifest(value, intent_hash=value.get("manifestHash"))):
             raise EngineRejected("seal-drift")
         if sorted(value.get("allowedWritePaths", ())) != sorted(expected_allowed):
             raise EngineRejected("seal-drift")
@@ -299,7 +316,9 @@ def _recover_manifest(repo, handle, dependencies, journal, expected_allowed):
         raise EngineRejected("seal-drift") from exc
     if not isinstance(value, dict):
         raise EngineRejected("seal-drift")
-    if intent is None or not c_evidence.verify_manifest(value, intent_hash=intent.get("data", {}).get("manifestHash")):
+    if (not _verify_recorded(journal, raw, value, intent_kind="manifest-intent",
+                             done_kind="sealed", hash_key="manifestHash")
+            or not c_evidence.verify_manifest(value, intent_hash=value.get("manifestHash"))):
         raise EngineRejected("seal-drift")
     if sorted(value.get("allowedWritePaths", ())) != sorted(expected_allowed):
         raise EngineRejected("seal-drift")
@@ -312,7 +331,7 @@ def _recover_manifest(repo, handle, dependencies, journal, expected_allowed):
 
 def _seal(
     repo, handle, dependencies, journal, config, scope, plan, capability, row,
-    report_path, allowed, timeline, *, retrieval=None, tree_digest_before=None,
+    report_path, allowed, timeline, *, retrieval=None, tree_digest_before=None, accept_baseline=False,
 ):
     recovered = _recover_manifest(repo, handle, dependencies, journal, allowed)
     if recovered is not None:
@@ -322,7 +341,7 @@ def _seal(
         config=config, scope=scope, plan=plan, capability=capability,
         report_path=report_path, allowed_write_paths=allowed,
         max_model_calls=row.get("maxModelCalls"), started_at=timeline.started_at,
-        retrieval=retrieval, tree_digest_before=tree_digest_before,
+        retrieval=retrieval, tree_digest_before=tree_digest_before, accept_baseline=accept_baseline,
     )
     journal[:] = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
     raw = c_io.read_bytes(handle.state_dir_fd, _run_rel(handle.run_id, "manifest.json"))
@@ -503,7 +522,9 @@ def _recover_verdict(repo, handle, dependencies, journal):
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise EngineRejected("verdict-conflict") from exc
-        if not c_gate.verify_verdict(value, intent.get("data", {}).get("gateHash") if intent else None):
+        if (not _verify_recorded(journal, raw, value, intent_kind="verdict-intent",
+                                 done_kind="gated", hash_key="gateHash")
+                or not c_gate.verify_verdict(value, value.get("gateHash"))):
             raise EngineRejected("verdict-conflict")
         return value
     if raw is None:
@@ -512,7 +533,9 @@ def _recover_verdict(repo, handle, dependencies, journal):
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise EngineRejected("verdict-conflict") from exc
-    if intent is None or not c_gate.verify_verdict(value, intent.get("data", {}).get("gateHash")):
+    if (not _verify_recorded(journal, raw, value, intent_kind="verdict-intent",
+                             done_kind="gated", hash_key="gateHash")
+            or not c_gate.verify_verdict(value, value.get("gateHash"))):
         raise EngineRejected("verdict-conflict")
     _hook(dependencies, "before-gated", {"runId": handle.run_id, "verdict": value, "recovered": True})
     event = c_run.append_journal(handle, "gated", {"sha256": _sha(raw), "gateHash": value["gateHash"]})
@@ -564,7 +587,7 @@ def _render(handle, dependencies, journal, manifest, scope, verdict, ledger, tim
     facts.update(manifest)
     facts.update(verdict)
     facts["findings"] = _findings(ledger)
-    facts["anchorEligible"] = verdict.get("verdict") == "CONSISTENT"
+    facts["anchorEligible"] = verdict.get("verdict") == "CONSISTENT" or _baseline_eligible(manifest, verdict)
     text = timeline.call("C-REPORT", c_report.render, facts)
     encoded = text.encode("utf-8")
     c_io.write_atomic(handle.state_dir_fd, _run_rel(handle.run_id, "report.rendered.md"), encoded)
@@ -663,6 +686,13 @@ def _anchor(handle, scope, published_at):
     }
 
 
+def _baseline_eligible(manifest, verdict):
+    return (manifest.get("acceptBaseline") is True and manifest.get("mode")=="full"
+            and verdict.get("verdict")=="NEEDS_FIX"
+            and all(item.get("kind")=="judgement" and item.get("layerId")=="L-DOC"
+                    for item in verdict.get("blocking", ())))
+
+
 def _record(repo, handle, dependencies, journal, manifest, scope, verdict, ledger, receipt, timeline, reason=None):
     published = receipt.get("publishedAt") if receipt else _stamp(dependencies)
     outcome = verdict.get("verdict") or verdict.get("outcome", "undecided")
@@ -697,6 +727,8 @@ def _record(repo, handle, dependencies, journal, manifest, scope, verdict, ledge
         data.update({"outcome": "undecided", "reason": reason or verdict.get("reason")})
     if receipt is not None:
         data["anchorCandidate"] = _anchor(handle, scope, published)
+    if reason is None and isinstance(receipt, dict) and outcome == "NEEDS_FIX" and _baseline_eligible(manifest, verdict):
+        data["acceptBaseline"] = True
     result = c_history.finalize(repo, {"runId": handle.run_id, "ts": _stamp(dependencies), "data": data})
     post_start = _stamp(dependencies)
     metrics_file = dict(metrics)
@@ -875,13 +907,13 @@ def _tree_before(repo, handle, allowed, resolved):
     return digest
 
 
-def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, config):
+def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, config, accept_baseline=False):
     guard.bind_run(handle.run_id)
     c_retrieval.cleanup_orphans(repo, handle.run_id)
     files, directories = _stage1(handle.run_id)
     guard.allow(paths=files, mkdir_paths=directories)
     journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
-    journal.append(c_run.append_journal(handle, "run-options", {"mode": mode, "requestedProfile": requested_profile}))
+    journal.append(c_run.append_journal(handle, "run-options", {"mode": mode, "requestedProfile": requested_profile, "acceptBaseline": bool(accept_baseline)}))
     for recovered in handle.recovered_tmp:
         journal.append(c_run.append_journal(handle, "tmp-recovered", {"path": recovered}))
     timeline = _Timeline(dependencies)
@@ -921,7 +953,7 @@ def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, confi
         manifest = _seal(
             repo, handle, dependencies, journal, config, scope, plan,
             capability_doc, row, report_path, allowed, timeline,
-            retrieval=retrieval, tree_digest_before=digest_before,
+            retrieval=retrieval, tree_digest_before=digest_before, accept_baseline=accept_baseline,
         )
     except (c_evidence.EvidenceRejected, c_retrieval.RetrievalRejected) as exc:
         if exc.reason == "worktree-too-large":
@@ -986,14 +1018,36 @@ def _drive_resume(repo, handle, guard, dependencies):
         journal.append(c_run.append_journal(handle, "tmp-recovered", {"path": recovered}))
     # An outcome may exist even if anchor advancement, metrics, or close was interrupted.
     history = [row for row in c_history.read_history(repo) if row["kind"] == "outcome" and row["runId"] == handle.run_id]
-    if history and history[0].get("data", {}).get("anchorEligible") is True:
-        manifest_for_guard = _load_json(handle.state_dir_fd, handle.run_id, "manifest.json")
-        intent = _event(journal, "manifest-intent")
-        if not c_evidence.verify_manifest(
-            manifest_for_guard,
-            intent_hash=intent.get("data", {}).get("manifestHash") if intent else None,
-        ):
+    outcome_data = history[0].get("data", {}) if history else {}
+    must_reconcile = history and outcome_data.get("verdict") == "NEEDS_FIX" and isinstance(outcome_data.get("reportReceipt"), dict)
+    if must_reconcile or (history and outcome_data.get("anchorEligible") is True):
+        try:
+            manifest_raw = c_io.read_bytes(handle.state_dir_fd, _run_rel(handle.run_id, "manifest.json"))
+            manifest_for_guard = json.loads(manifest_raw.decode("utf-8"))
+        except (FileNotFoundError, c_io.IoRejected, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise EngineRejected("seal-drift") from exc
+        if (not isinstance(manifest_for_guard, dict)
+                or not _verify_recorded(journal, manifest_raw, manifest_for_guard,
+                                        intent_kind="manifest-intent", done_kind="sealed",
+                                        hash_key="manifestHash", require_done=True)
+                or not c_evidence.verify_manifest(manifest_for_guard,
+                                                  intent_hash=manifest_for_guard.get("manifestHash"))):
             raise EngineRejected("seal-drift")
+        if must_reconcile:
+            try:
+                verdict_raw = c_io.read_bytes(handle.state_dir_fd, _run_rel(handle.run_id, "verdict.json"))
+                verdict_for_guard = json.loads(verdict_raw.decode("utf-8"))
+            except (FileNotFoundError, c_io.IoRejected, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise EngineRejected("seal-drift") from exc
+            if (not isinstance(verdict_for_guard, dict)
+                    or not _verify_recorded(journal, verdict_raw, verdict_for_guard,
+                                            intent_kind="verdict-intent", done_kind="gated",
+                                            hash_key="gateHash", require_done=True)
+                    or not c_gate.verify_verdict(verdict_for_guard,
+                                                 verdict_for_guard.get("gateHash"))):
+                raise EngineRejected("seal-drift")
+            if (outcome_data.get("acceptBaseline") is True) != _baseline_eligible(manifest_for_guard, verdict_for_guard):
+                raise EngineRejected("seal-drift")
         guard.allow(
             paths=_with_temps(manifest_for_guard["allowedWritePaths"]),
             mkdir_paths=sorted(set(_stage1(handle.run_id)[1]) | set(_parents(manifest_for_guard["reportPath"]))),
@@ -1013,6 +1067,7 @@ def _drive_resume(repo, handle, guard, dependencies):
     option_data = options.get("data", {}) if options else {}
     mode = option_data.get("mode", "incremental")
     requested_profile = option_data.get("requestedProfile", handle.profile_name)
+    accept_baseline = option_data.get("acceptBaseline", False)
     timeline = _Timeline(dependencies)
     config_event = _event(journal, "config-sealed")
     if config_event is None:
@@ -1112,15 +1167,17 @@ def _drive_resume(repo, handle, guard, dependencies):
     manifest = _seal(
         repo, handle, dependencies, journal, config, scope, plan, capability,
         row, report_path, allowed, timeline, retrieval=retrieval,
-        tree_digest_before=digest_before,
+        tree_digest_before=digest_before, accept_baseline=accept_baseline,
     )
     guard.freeze()
     return _after_seal(repo, handle, guard, dependencies, journal, config, scope, plan, capability, manifest, timeline)
 
 
-def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineDeps | None = None):
+def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineDeps | None = None, accept_baseline: bool = False):
     dependencies = deps or production()
     mode = "full" if full else "incremental"
+    if accept_baseline and not full:
+        return _next(3, "abort", None, None, "accept-baseline-requires-full")
     try:
         c_profile.validate_table(dependencies.profile_table, LAYER_REGISTRY)
         # Configuration and fixed-profile rejection happen before a run is opened.
@@ -1134,7 +1191,7 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
             try:
                 handle = c_run.open_run(repo, profile or _default_row(dependencies.profile_table)["name"])
                 try:
-                    return _drive_new(repo, handle, guard, profile, mode, dependencies, config)
+                    return _drive_new(repo, handle, guard, profile, mode, dependencies, config, accept_baseline)
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
                 except (OSError, c_io.IoRejected,

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from .fixtures import init_repo
 
 
 ROOT = Path(__file__).parents[1]
@@ -33,3 +34,11 @@ class CliVersionTests(unittest.TestCase):
         value = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(value["reason"], "migration-source-missing")
         self.assertEqual(value["nextAction"], "abort")
+
+    def test_accept_baseline_requires_full(self):
+        with tempfile.TemporaryDirectory() as directory:
+            init_repo(Path(directory))
+            result = self.run_cli("audit", "--accept-baseline", "--repo-root", directory)
+        value = json.loads(result.stdout.splitlines()[-1])
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual((value["nextAction"], value["reason"]), ("abort", "accept-baseline-requires-full"))

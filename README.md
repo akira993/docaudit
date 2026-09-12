@@ -16,34 +16,34 @@ A completed run ends in one verdict, `CONSISTENT` or `NEEDS_FIX`, backed by a pe
 
 ## Install
 
-The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.0.3`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
+The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.1.0`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
 ```sh
 { [ ! -e ~/.claude/skills ] || [ "$(find ~/.claude/skills/ -maxdepth 1 -name 'docaudit.*' -print -quit && echo ok)" = ok ]; } \
   && SRC=$(mktemp -d) && TAR=$(mktemp) \
   && git clone https://github.com/akira993/docaudit "$SRC" \
   && { [ ! -e ~/.claude/skills/docaudit ] \
-       || { [ ! -e ~/.claude/docaudit.before-1.0.3 ] && mv ~/.claude/skills/docaudit ~/.claude/docaudit.before-1.0.3; }; } \
+       || { [ ! -e ~/.claude/docaudit.before-1.1.0 ] && mv ~/.claude/skills/docaudit ~/.claude/docaudit.before-1.1.0; }; } \
   && [ ! -e ~/.claude/skills/docaudit ] \
-  && git -C "$SRC" archive --format=tar -o "$TAR" v1.0.3 \
+  && git -C "$SRC" archive --format=tar -o "$TAR" v1.1.0 \
   && mkdir -p ~/.claude/skills/docaudit \
   && tar -x -f "$TAR" -C ~/.claude/skills/docaudit \
   && python3 ~/.claude/skills/docaudit/skills/audit/engine --version
 ```
 
-The last command prints `1.0.3`. The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` is either absent or holds an unverified copy: if it exists, rename it to a name that does not exist yet (for example `~/.claude/docaudit.unverified-1.0.3`) or delete it; then move `~/.claude/docaudit.before-1.0.3` back to `~/.claude/skills/docaudit`. If the backup name already exists from an earlier attempt, rename that older backup first.
+The last command prints `1.1.0`. The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` is either absent or holds an unverified copy: if it exists, rename it to a name that does not exist yet (for example `~/.claude/docaudit.unverified-1.1.0`) or delete it; then move `~/.claude/docaudit.before-1.1.0` back to `~/.claude/skills/docaudit`. If the backup name already exists from an earlier attempt, rename that older backup first.
 
-Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 1.0.3, and the skill is available as `/docaudit:audit`.
+Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 1.1.0, and the skill is available as `/docaudit:audit`.
 
 Alternatively, install through the plugin marketplace that this repository declares. Use one install method, not both: two enabled plugins with the same name have not been verified, so if `~/.claude/skills/docaudit` already exists, move it out of `~/.claude/skills/` first.
 
 ```sh
-claude plugin marketplace add akira993/docaudit@v1.0.3 \
+claude plugin marketplace add akira993/docaudit@v1.1.0 \
   && claude plugin install docaudit@akira-plugins \
-  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/1.0.3/skills/audit/engine --version
+  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/1.1.0/skills/audit/engine --version
 ```
 
-The last command prints `1.0.3`. Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 1.0.3. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
+The last command prints `1.1.0`. Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 1.1.0. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
 
 ## Configure the repository
 
@@ -77,11 +77,12 @@ In Claude Code, inside the repository:
 
 ```
 /docaudit:audit --full            # first run of a profile: audit the whole corpus
+/docaudit:audit --full --accept-baseline # accept a document-only NEEDS_FIX baseline
 /docaudit:audit                   # later runs: only the documents impacted by changes since the last accepted run
 /docaudit:audit --profile focused # choose a profile (focused, standard, extended); each profile starts with its own --full run
 ```
 
-Anchors are kept per profile. The first anchor of a profile is written only when a full run of that profile ends `CONSISTENT`; until then every run of the profile must be started with `--full`, and an incremental run without an anchor ends `undecided` with the reason `anchor-missing`. After that, any run of the profile that ends `CONSISTENT` advances the anchor, and incremental runs measure changes from it.
+Anchors are kept per profile. The first anchor is written after `CONSISTENT`, or after `--full --accept-baseline` ends `NEEDS_FIX` with only L-DOC blocking judgements. Later `CONSISTENT` runs also advance the anchor, and incremental runs measure from it. A known FAIL document is not rechecked after acceptance only when it is not impacted by `impact.map`, `ssotSources`, or heuristics and `changes.regressionRecheck` is disabled. `changes.regressionRecheck: true` rechecks current failed documents; they count toward `impact.maxImpactedDocs`, stop with `impact-limit` when exceeded, and do not shrink until they pass. Non-document blocking findings are not accepted; find and fix their causes in the report findings first. This path is available in 1.1.0 and later.
 
 Profiles decide which layers run:
 

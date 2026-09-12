@@ -38,7 +38,7 @@ class LayoutTests(unittest.TestCase):
         self.assertFalse((root / "skills/audit/workflow.js").exists())
 
     def test_ids_and_plan(self):
-        self.assertEqual(len(design_ids()), 36)
+        self.assertEqual(len(design_ids()), 37)
         planned = {i for phase in PHASES.values() for i in phase["design"]}
         self.assertEqual(planned, set(design_ids()))
         self.assertEqual(len(route_ids()), 10)

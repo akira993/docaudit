@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.0.3 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.1.0 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 
@@ -11,7 +11,7 @@ English: [ADOPTION.md](ADOPTION.md)
 1. plugin を一度だけ install し（README の「Install」）、新しい Claude Code session を開く。
 2. リポジトリに `.claude/docaudit.json` を作り（第 4 節）、commit する。
 3. `/docaudit:audit --full` を実行する。公開された report を読み、指摘された文書を直す。
-4. run が `CONSISTENT` で終わるまで `/docaudit:audit --full` を繰り返す。その run が最初の anchor を書く。
+4. run が `CONSISTENT` で終わるまで `/docaudit:audit --full` を繰り返す。その run が最初の anchor を書く。`NEEDS_FIX` が文書判定だけで止まる場合は `/docaudit:audit --full --accept-baseline` で baseline を受理し、以後は incremental にできる。切れたローカルリンク、失敗した project check、その他の文書判定以外の blocking は受理されないため、report の所見を先に直す。
 5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書だけが検証される。
 
 1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
@@ -105,6 +105,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 
 - anchor は profile ごとに `.claude/state/docaudit/anchors/` に保持されます。
 - profile の最初の anchor は、その profile の full の run が `CONSISTENT` で終わったときに書かれます。それまで、その profile の incremental な run は `undecided anchor-missing` で終わるので、`--full` を使い続けてください。
+- `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、PASS になるまで集合は縮まない。文書判定以外の blocking は受理されない。`standard` では切れたリンクと project check、`extended` では加えて security／adversarial／claim の blocking 所見を直す。
 - 以後、その profile の run が `CONSISTENT` で終わるたびに anchor が前進します。`NEEDS_FIX`・`undecided`・`REFUSED` の run は anchor を動かさないので、次の incremental な run は同じ変更に新しい変更を加えて再び測ります。
 - profile を切り替えると新しいライフサイクルが始まります。`focused` の anchor は `standard` の run には使われません。
 
@@ -148,6 +149,7 @@ skill は前の session から残った run を回復しません。手作業か
 |---|---|---|
 | `CONSISTENT` | 影響を受けた文書がすべて一致し、blocking な所見もない | なし。anchor が前進した |
 | `NEEDS_FIX` | 少なくとも 1 文書が失敗、または blocking な所見（切れたリンク・失敗した project check・confirmed な claim） | report に出たものを直して再実行 |
+| `NEEDS_FIX`（`--full --accept-baseline` で受理） | FAIL が文書判定だけ | anchor は前進した。既知 FAIL は文書を直したときに再判定 |
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、Claude Code の中でもない） | Codex を install または修復するか、Claude Code の中で実行 |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | 対応表を絞るか上限を上げるか、`--full` で実行 |

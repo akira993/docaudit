@@ -171,6 +171,12 @@ and snapshot digest. A history line has `seq`, `ts`, `kind`, `runId`, and object
 `migration`;
 unknown kinds are retained and ignored.
 
+An outcome event has optional `acceptBaseline: true` only when `--accept-baseline`
+was applied to a full `NEEDS_FIX` run whose blocking items are all `L-DOC`
+judgements and whose report was published. The anchor file and its `anchor`
+history event have optional `acceptedBaseline: true` only when that acceptance
+wrote the anchor.
+
 The `migration` kind uses `runId: "migration"`; its single `completed` event is
 the one-time conversion marker described above. It is documentation-level
 enumeration, not a reader whitelist.
@@ -264,7 +270,7 @@ owns these files:
 | `manifest.json` | exclusively published immutable run contract |
 | `evidence.jsonl` | append-only typed adapter evidence |
 | `verdict.json` | exclusively published gate result |
-| `anchor-candidate.json` | candidate state used only after an eligible outcome |
+| `anchor-candidate.json` | candidate state written after a report publishes regardless of verdict; an accepted `NEEDS_FIX` candidate includes `acceptedBaseline` |
 | `report.rendered.md` | validated report bytes before publication |
 | `metrics.json` | final duration and model-call measurements |
 | `retrieval.json` | document-index locations and language for this run |
@@ -329,6 +335,10 @@ matches the rendered SHA-256, resume reconstructs a receipt with
 `capabilityFileHash`, `changeSetHash`, `corpusDigest`, `reportPath`,
 `allowedWritePaths`, `treeDigestBefore`, `maxModelCalls`, `retrieval`, and
 `manifestHash`.
+
+Optional `acceptBaseline` is a boolean; absent means false, and true is valid only with `mode: full`.
+
+`accept-baseline-requires-full` rejects an acceptance request that is not a full run.
 
 The four `*FileHash` values bind the exact bytes of config snapshot, scope,
 plan, and capability files. Their corresponding semantic hashes bind canonical
@@ -464,6 +474,13 @@ does not reach `closed` and prints an `abort` result. Recovery-detected
 integrity failures are recorded in history and closed with status 0. Resume
 also reconciles a recorded outcome and any missing anchor step before closing
 it.
+
+When resume sees a recorded `NEEDS_FIX` outcome with a report receipt, it
+revalidates the manifest and compares the acceptance derived from the manifest,
+`verdict.json`, and receipt with outcome `acceptBaseline`. A mismatch, or an
+unreadable or invalid manifest or `verdict.json`, stops with `seal-drift` and
+does not change the anchor. `REFUSED`, undecided, and `CONSISTENT` outcomes
+close as before.
 
 For `migrate --dry-run`, status 0 means `convertible` or `unchanged`, and status
 1 means `not-convertible`; both use `nextAction: "done"`. For full `migrate`,
