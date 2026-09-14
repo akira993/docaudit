@@ -34,6 +34,60 @@ def invoke(root, *, dry_run=False):
 
 
 class MigrateTests(unittest.TestCase):
+    def test_heuristics_missing_gets_legacy_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = legacy_repo(root, entries=0, with_last_run=False)
+            fixture["config"].pop("heuristics", None)
+            (root / ".claude/doc-audit.json").write_text(json.dumps(fixture["config"]), encoding="utf-8")
+            mapped, _, _ = c_migrate._map_config((root / ".claude/doc-audit.json").read_bytes())
+        self.assertEqual(mapped["impact"]["heuristics"], {"minIdentifierLength": 5, "excludeBasenames": ["readme.md", "index.md", "changelog.md", "license", "license.md", "__init__.py", "makefile", "main.md", "test.md", "skill", "skill.md"], "saturationWarnRatio": 0.5, "excludeDocPathTokens": False})
+
+    def test_empty_heuristics_get_legacy_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = legacy_repo(root, entries=0, with_last_run=False)
+            fixture["config"]["heuristics"] = {}
+            mapped, _, _ = c_migrate._map_config(json.dumps(fixture["config"]).encode("utf-8"))
+        self.assertEqual(mapped["impact"]["heuristics"], {"minIdentifierLength": 5, "excludeBasenames": ["readme.md", "index.md", "changelog.md", "license", "license.md", "__init__.py", "makefile", "main.md", "test.md", "skill", "skill.md"], "saturationWarnRatio": 0.5, "excludeDocPathTokens": False})
+
+    def test_heuristics_merge_legacy_exclusions_case_insensitively(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = legacy_repo(root, entries=0, with_last_run=False)
+            fixture["config"]["heuristics"] = {"excludeBasenames": ["Application.php", "README.md"], "minIdentifierLength": 6}
+            mapped, _, _ = c_migrate._map_config(json.dumps(fixture["config"]).encode("utf-8"))
+        self.assertEqual(mapped["impact"]["heuristics"], {"excludeBasenames": ["Application.php", "README.md", "index.md", "changelog.md", "license", "license.md", "__init__.py", "makefile", "main.md", "test.md", "skill", "skill.md"], "minIdentifierLength": 6, "saturationWarnRatio": 0.5, "excludeDocPathTokens": False})
+
+    def test_non_object_heuristics_remain_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = legacy_repo(root, entries=0, with_last_run=False)
+            fixture["config"]["heuristics"] = []
+            (root / ".claude/doc-audit.json").write_text(json.dumps(fixture["config"]), encoding="utf-8")
+            result = c_migrate.migrate(root)
+        self.assertEqual((result["exitCode"], result["reason"]), (4, "config-invalid:impact.heuristics"))
+
+    def test_prior_target_without_heuristics_is_rejected_without_mutating_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = legacy_repo(root, entries=1, with_last_run=False)
+            legacy = root / ".claude/doc-audit.json"
+            fixture["config"].pop("heuristics")
+            legacy.write_text(json.dumps(fixture["config"]), encoding="utf-8")
+            legacy_history = root / ".claude/state/docaudit-history.json"
+            history = root / c_history.HISTORY_REL
+            mapped, _, _ = c_migrate._map_config(legacy.read_bytes())
+            mapped["impact"].pop("heuristics")
+            target = root / ".claude/docaudit.json"
+            target.write_bytes(layers.canonical_json(mapped).encode("utf-8") + b"\n")
+            before = tuple(path.read_bytes() for path in (legacy, target, legacy_history))
+            history_before = history.read_bytes() if history.exists() else None
+            result = c_migrate.migrate(root)
+            self.assertEqual((result["exitCode"], result["reason"]), (4, "migration-target-exists"))
+            self.assertEqual(tuple(path.read_bytes() for path in (legacy, target, legacy_history)), before)
+            self.assertEqual(history.read_bytes() if history.exists() else None, history_before)
+
     def test_dry_run_is_tree_read_only(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

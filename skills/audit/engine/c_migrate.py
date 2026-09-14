@@ -36,6 +36,15 @@ _LAYER_MAP = {
     "semantic": ("orphan",),
     "existence": ("existence",),
 }
+_HEURISTIC_DEFAULTS = {
+    "minIdentifierLength": 5,
+    "excludeBasenames": [
+        "readme.md", "index.md", "changelog.md", "license", "license.md",
+        "__init__.py", "makefile", "main.md", "test.md", "skill", "skill.md",
+    ],
+    "saturationWarnRatio": 0.5,
+    "excludeDocPathTokens": False,
+}
 
 
 class MigrationRejected(Exception):
@@ -125,6 +134,23 @@ def _map_front_matter_overrides(value, dropped):
     return result
 
 
+def _map_heuristics(value):
+    if not isinstance(value, dict):
+        return value
+    mapped = dict(value)
+    for key, default in _HEURISTIC_DEFAULTS.items():
+        if key not in mapped:
+            mapped[key] = list(default) if isinstance(default, list) else default
+    exclude = mapped.get("excludeBasenames")
+    if isinstance(exclude, list):
+        seen = {item.lower() for item in exclude if isinstance(item, str)}
+        mapped["excludeBasenames"] = exclude + [
+            item for item in _HEURISTIC_DEFAULTS["excludeBasenames"]
+            if item.lower() not in seen
+        ]
+    return mapped
+
+
 def _without_line(value: str) -> str:
     return re.sub(r":\d+$", "", value)
 
@@ -174,7 +200,6 @@ def _map_config(raw: bytes):
         ("auditReportsInCorpus", corpus, "auditReportsInCorpus"),
         ("diffGlobs", changes, "diffGlobs"),
         ("maxImpactedDocs", impact, "maxImpactedDocs"),
-        ("heuristics", impact, "heuristics"),
         ("reportPath", report, "path"),
         ("indexFiles", checks, "indexFiles"),
         ("frontMatterFields", checks, "frontMatterFields"),
@@ -182,6 +207,10 @@ def _map_config(raw: bytes):
     for old_key, section, new_key in direct:
         if old_key in old:
             section[new_key] = old[old_key]
+    impact["heuristics"] = _map_heuristics(old["heuristics"]) if "heuristics" in old else {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in _HEURISTIC_DEFAULTS.items()
+    }
 
     if "impactMap" in old:
         impact["map"] = _map_impact_map(old["impactMap"], dropped)

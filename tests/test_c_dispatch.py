@@ -60,6 +60,9 @@ class DispatchTests(unittest.TestCase):
             prompt = c_dispatch._prompt(ctx, ctx["scope"]["impacted"][0], {"runId": "r", "path": "docs/a.md"})
         self.assertIn("never read, search, or cite anything outside it", prompt)
         self.assertIn("outside the audit scope", prompt)
+        self.assertIn("Search recursively before reporting a repository path as missing", prompt)
+        self.assertIn("documented path is wrong", prompt)
+        self.assertIn("hidden directories such as", prompt)
 
     def test_adapter_requires_explicit_reservation_callback(self):
         with tempfile.TemporaryDirectory() as directory:

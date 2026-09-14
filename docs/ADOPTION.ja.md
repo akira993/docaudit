@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.1.0 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.1.1 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 
@@ -64,7 +64,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 
 `impact.ssotSources` は、ある値の唯一の情報源になる file（版 file、port 一覧など）について対応表と同じように働きます。情報源の変更は、それを引用する文書に常に影響します。
 
-`impact.heuristics` は任意で、キーが無ければ動きません。設定すると `L-SCOPE` は変更された各 file の名前を拡張子あり・なしの 2 形で取り出し、文書本文がそのどれかを素の部分文字列として含むときにその文書を影響対象にします。`minIdentifierLength` は短い名前を落とし、`excludeBasenames` は `index.ts` や `README` のようにどこにでも一致する名前を落とし、`excludeDocPathTokens` は変更された文書自身の名前を無視し、`saturationWarnRatio` はこの照合だけで影響対象になった文書が corpus 全体に占める割合がその比率に達したときに警告します。まずはヒューリスティクスなしで始め、対応表だけでは変更 file の名前を挙げている文書を取りこぼすときに追加してください。
+`impact.heuristics` は任意で、キーが無ければ動きません。設定すると `L-SCOPE` は変更された各 file の名前を拡張子あり・なしの 2 形で取り出し、文書本文がそのどれかを素の部分文字列として含むときにその文書を影響対象にします。`minIdentifierLength` は短い名前を落とし、`excludeBasenames` は `index.ts` や `README` のようにどこにでも一致する名前を落とします（除外名の照合では大小文字を区別しません）。`excludeDocPathTokens` は変更された文書自身の名前を無視し、`saturationWarnRatio` はこの照合だけで影響対象になった文書が corpus 全体に占める割合がその比率に達したときに警告します。まずはヒューリスティクスなしで始め、対応表だけでは変更 file の名前を挙げている文書を取りこぼすときに追加してください。
 
 `impact.maxImpactedDocs` は、1 回の incremental な run で検証してよい最大の文書数にします。full の run はこの上限を受けません。
 
@@ -77,9 +77,15 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-r
 python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # .claude/docaudit.json を書く
 ```
 
-dry run は `convertible`・`not-convertible`・`unchanged` のいずれかの結果と、変換後の設定、`counts`（legacy 履歴の件数・last-run 記録の有無・破棄されたキーの一覧）、読んだ入力とそのハッシュ、`anchor`（移行されない）、`runOpen` を表示します。プロジェクトの事実（文書 glob・差分 glob・impact map・report path・front matter と index の設定・ヒューリスティクス・唯一情報源の項目）は 1.0.0 のキーに対応付けられます。旧 install の詳細・コマンド対応・任意ツールを記述していたキーは破棄されます。1.0.0 はツールの利用可能性を設定ではなく検出で決めるためです。対応の全表は CONFIG-1.0.0.md の「Old-key disposition」にあります。
+dry run は `convertible`・`not-convertible`・`unchanged` のいずれかの結果と、変換後の設定、`counts`（legacy 履歴の件数・last-run 記録の有無・破棄されたキーの一覧）、読んだ入力とそのハッシュ、`anchor`（移行されない）、`runOpen` を表示します。プロジェクトの事実（文書 glob・差分 glob・impact map・report path・front matter と index の設定・ヒューリスティクス・唯一情報源の項目）は 1.0.0 のキーに対応付けられ、ヒューリスティクスは以前の版の既定値を補って書かれます。旧 install の詳細・コマンド対応・任意ツールを記述していたキーは破棄されます。1.0.0 はツールの利用可能性を設定ではなく検出で決めるためです。対応の全表は CONFIG-1.0.0.md の「Old-key disposition」にあります。
 
 変換後の設定は常に `L-SCOPE`・`L-DOC`・`L-PROJECT` を有効にし、`projectChecks` は空です。legacy な履歴 file があれば、その項目は新しい `history.jsonl` に `legacy` 行として写されます。legacy な anchor は移行されないので、各 profile の最初の run は `--full` でなければなりません。移行が完了すると履歴に完了印が残ります。同じ legacy 入力で `migrate` をもう一度実行すると、run が開いていても `unchanged` を報告して何も書きません。legacy 入力が変わっていれば `migration-input-changed` で拒否されます。それ以外の本番の migrate は run が開いている間は拒否され（`migration-run-open`）、変換結果とバイト列が異なる既存の `.claude/docaudit.json` を置き換えることも拒否します（`migration-target-exists`）。
+
+heuristic だけで影響対象になった文書も `impact.maxImpactedDocs` に数えられるため、上限を超えると run は `impact-limit` で止まります。以前の harness は超過した heuristic の一致を切り捨てて続けていました。以前の版で移行した設定には以前の既定値が無いことがあります。同じ legacy 入力で migrate を再実行すると `unchanged` になり既存 file は書き換えられないため、`impact.heuristics` は手で整合させてください。無ければ次の object を設定し、既にあればその key と値を保ったまま、次の object にある不足 key だけを補い、`excludeBasenames` には次の object の順で既存 list に大小文字を区別せず無い名前だけを末尾に足します。
+
+```json
+{"minIdentifierLength":5,"excludeBasenames":["readme.md","index.md","changelog.md","license","license.md","__init__.py","makefile","main.md","test.md","skill","skill.md"],"saturationWarnRatio":0.5,"excludeDocPathTokens":false}
+```
 
 新しい file を確認して commit し、不要になったら legacy file を取り除いてください。engine が読むのは `.claude/docaudit.json` だけで、legacy file しかないリポジトリは `config-needs-migration` で終わります。
 

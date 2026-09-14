@@ -117,6 +117,9 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn("--abandon", skill)
         self.assertIn("outside the audit scope", agent)
         self.assertIn("outside the audit scope", source)
+        for text in ("Search recursively before reporting a repository path as missing", "documented path is wrong", "hidden directories such as"):
+            self.assertIn(text, agent)
+            self.assertIn(text, source)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ an absolute path.
 | `changes.regressionRecheck` | boolean | no | `false` |
 | `impact.map` | `{source: glob, docs: path[]}` array | yes | — |
 | `impact.maxImpactedDocs` | integer at least 1 | yes | — |
-| `impact.heuristics` | `{minIdentifierLength: int, excludeBasenames: string[], saturationWarnRatio: number, excludeDocPathTokens: boolean}` | no | omitted |
+| `impact.heuristics` | `{minIdentifierLength: int, excludeBasenames: string[], saturationWarnRatio: number, excludeDocPathTokens: boolean}`; exclusion names are compared case-insensitively | no | omitted |
 | `impact.ssotSources` | `{source: path, docs: path[]}` array | no | `[]` |
 | `report.path` | string template | yes | — |
 | `documentChecks.frontMatterFields` | string array | no | `[]` |
@@ -46,7 +46,7 @@ For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.md
 | `indexFiles` | migrate | `documentChecks.indexFiles` | project fact |
 | `frontMatterFields` | migrate | `documentChecks.frontMatterFields` | project fact |
 | `frontMatterOverrides` | migrate | `documentChecks.frontMatterOverrides` | project fact |
-| `heuristics` | migrate | `impact.heuristics` | project fact |
+| `heuristics` | migrate | `impact.heuristics` | project fact; migration supplements earlier-release defaults |
 | `layerGlobs` | migrate | `documentChecks.layerGlobs` | `migrate` maps old `format` to `front-matter` plus `links`, and old `semantic` to `orphan` |
 | `regressionRecheck` | migrate | `changes.regressionRecheck` | project fact |
 | `ssotSources` | migrate | `impact.ssotSources` | project fact |
@@ -98,7 +98,7 @@ schemas differ:
 | `frontMatterOverrides[i] = {globs: string[], fields: string[]}` | One `{glob, fields}` object per glob, in input order | An empty `globs` drops the entry and adds `frontMatterOverrides[i]`. |
 | `layerGlobs[check] = {exclude: string[]}` or a string array | The `exclude` array or original array is passed to the check-ID mapping | Object keys other than `exclude` are ignored. |
 | `ssotSources[i] = {name, value?, liveSource, docsThatCite}` | `{source: liveSource, docs: docsThatCite}` after removing a trailing `:<digits>` from each doc and deduplicating in first-seen order | A non-string `liveSource` or one beginning with `http://` or `https://` drops the entry and adds `ssotSources.<name>` when a nonempty string name is available, otherwise `ssotSources.<index>`. |
-| `heuristics` | The original value | — |
+| `heuristics` | If absent, write the legacy defaults. If an object, retain its keys and values, fill missing `minIdentifierLength`, `saturationWarnRatio`, and `excludeDocPathTokens`, and append legacy default exclusion names not already present case-insensitively. A non-object or invalid subkey remains unchanged for normal validation. | — |
 
 Within `layerGlobs`, `format` maps its extracted array to both `front-matter`
 and `links`, `semantic` maps to `orphan`, and `existence` keeps its name. Arrays
@@ -139,6 +139,26 @@ only the remaining deterministic rows; their contents are not compared. An
 existing target config is accepted only when its byte hash is the prepared
 config hash; an unreadable target, symlink, or different hash is
 `migration-target-exists`.
+
+If an earlier release wrote a target before its completion marker, a later
+conversion can reject it as `migration-target-exists` because the prepared
+bytes differ; move the target to another name and run the conversion again. If
+the completion marker and inputs match, conversion still returns `unchanged`
+without rewriting the earlier target.
+
+Heuristic-only impacted documents count toward `impact.maxImpactedDocs`, and a
+run stops with `impact-limit` when the limit is exceeded, unlike the earlier
+harness, which discarded excess heuristic matches and continued. A configuration
+migrated by an earlier release can lack these legacy heuristic defaults; because
+matching legacy inputs return `unchanged` and do not rewrite an existing file,
+reconcile `impact.heuristics` manually: if absent, set it to this object; if
+present, retain its keys and values, add from this object only the keys it does not already have, and
+append to `excludeBasenames`, in this object's order, each name not already in
+the existing list case-insensitively:
+
+```json
+{"minIdentifierLength":5,"excludeBasenames":["readme.md","index.md","changelog.md","license","license.md","__init__.py","makefile","main.md","test.md","skill","skill.md"],"saturationWarnRatio":0.5,"excludeDocPathTokens":false}
+```
 
 Full conversion repeats all input reads, hashes, and validation while holding
 the state mutex. Any change from preflight is `migration-input-changed`. It
@@ -513,7 +533,7 @@ output limit, 600 second document timeout, five second termination grace, and
 <schema-file> -o <output-file> -`. The prompt is supplied from a private file;
 it names the relative target, provenance, mode, up to 100 changed paths, and an
 identity containing only run ID and relative path. It instructs the model to
-judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. The prompt contains neither the content hash, document bytes, nor private absolute paths.
+judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. The prompt contains neither the content hash, document bytes, nor private absolute paths.
 
 The output object has exactly `runId`, `path`, `verdict`, `rationale`, and
 `evidence`. Verdict is `PASS`, `WARN`, or `FAIL`; evidence is a string array.

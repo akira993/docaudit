@@ -2,7 +2,7 @@
 
 日本語版: [ADOPTION.ja.md](ADOPTION.ja.md)
 
-This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.1.0 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
+This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.1.1 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
 
 Commands in this guide use the engine path of the skills-dir install, `~/.claude/skills/docaudit/skills/audit/engine`. If you installed through the marketplace, substitute the engine path given in the README's install section.
 
@@ -64,7 +64,7 @@ Commit the configuration. It is part of the repository's contract, and the engin
 
 `impact.ssotSources` works like the map for files that are the single source of truth for a value (a version file, a port table): a change to the source always impacts the documents that cite it.
 
-`impact.heuristics` is optional and off unless the key is present. When configured, `L-SCOPE` takes the file name of every changed file, with and without its extension, and marks a document as impacted when its text contains one of those names as a plain substring. `minIdentifierLength` drops short names, `excludeBasenames` drops names such as `index.ts` or `README` that would match everywhere, `excludeDocPathTokens` ignores the names of changed documents themselves, and `saturationWarnRatio` warns when the documents impacted only by this matching reach that share of the whole corpus. Start without heuristics; add them when the map alone misses documents that name the changed files.
+`impact.heuristics` is optional and off unless the key is present. When configured, `L-SCOPE` takes the file name of every changed file, with and without its extension, and marks a document as impacted when its text contains one of those names as a plain substring. `minIdentifierLength` drops short names, `excludeBasenames` drops names such as `index.ts` or `README` that would match everywhere (exclusion names are case-insensitive), `excludeDocPathTokens` ignores the names of changed documents themselves, and `saturationWarnRatio` warns when the documents impacted only by this matching reach that share of the whole corpus. Start without heuristics; add them when the map alone misses documents that name the changed files.
 
 Set `impact.maxImpactedDocs` to the largest set you are willing to verify in one incremental run. A full run is not capped by it.
 
@@ -77,9 +77,15 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-r
 python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # writes .claude/docaudit.json
 ```
 
-The dry run prints a result of `convertible`, `not-convertible`, or `unchanged`, together with the converted configuration, `counts` (legacy history entries, whether a last-run record exists, and the list of dropped keys), the inputs it read with their hashes, `anchor` (never migrated), and `runOpen`. Project facts (document globs, diff globs, the impact map, report path, front-matter and index settings, heuristics, single-source-of-truth entries) are mapped to their 1.0.0 keys. Keys that described the old installation, command mappings, or optional tools are dropped, because 1.0.0 detects tool availability instead of configuring it. The full disposition table is in CONFIG-1.0.0.md, "Old-key disposition".
+The dry run prints a result of `convertible`, `not-convertible`, or `unchanged`, together with the converted configuration, `counts` (legacy history entries, whether a last-run record exists, and the list of dropped keys), the inputs it read with their hashes, `anchor` (never migrated), and `runOpen`. Project facts (document globs, diff globs, the impact map, report path, front-matter and index settings, heuristics, single-source-of-truth entries) are mapped to their 1.0.0 keys; migration writes heuristics with the earlier-release defaults filled in. Keys that described the old installation, command mappings, or optional tools are dropped, because 1.0.0 detects tool availability instead of configuring it. The full disposition table is in CONFIG-1.0.0.md, "Old-key disposition".
 
 The converted configuration always enables `L-SCOPE`, `L-DOC`, and `L-PROJECT` with no `projectChecks`. If a legacy history file exists, its entries are copied into the new `history.jsonl` as `legacy` lines; legacy anchors are not migrated, so the first run of every profile must be `--full`. A completed migration leaves a marker in the history. Running `migrate` again with the same legacy inputs reports `unchanged` and writes nothing, even while a run is open; with changed legacy inputs it is rejected with `migration-input-changed`. Otherwise the full migration refuses to run while a run is open (`migration-run-open`) and refuses to replace an existing `.claude/docaudit.json` whose bytes differ from the conversion (`migration-target-exists`).
+
+Heuristic-only impacted documents count toward `impact.maxImpactedDocs`, so exceeding the limit stops the run with `impact-limit`, unlike the earlier harness, which discarded excess heuristic matches and continued. A configuration migrated by an earlier release can lack the earlier defaults; because matching legacy inputs return `unchanged` and do not rewrite an existing file, reconcile `impact.heuristics` manually: if absent, set it to this object; if present, retain its keys and values, add from this object only the keys it does not already have, and append to `excludeBasenames`, in this object's order, each name not already in the existing list case-insensitively:
+
+```json
+{"minIdentifierLength":5,"excludeBasenames":["readme.md","index.md","changelog.md","license","license.md","__init__.py","makefile","main.md","test.md","skill","skill.md"],"saturationWarnRatio":0.5,"excludeDocPathTokens":false}
+```
 
 Review the new file, commit it, and remove the legacy file when you no longer need it. The engine reads only `.claude/docaudit.json`; a repository that still has only the legacy file ends with `config-needs-migration`.
 

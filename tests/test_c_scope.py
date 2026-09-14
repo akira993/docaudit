@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from skills.audit.engine import c_scope
+from skills.audit.engine import c_config, c_migrate, c_scope
 from skills.audit.engine.profiles import PROFILE_TABLE
 from .acceptance import acceptance
 
@@ -19,6 +19,36 @@ class ScopeTests(unittest.TestCase):
   for pattern,path,want in rows: self.assertEqual(c_scope.match_glob(pattern,path),bool(want))
  def _anchor(self,f=None):
   f=f or facts(); return {"snapshot":c_scope.snapshot_worktree(self.root,f),"documents":c_scope.compute_corpus(self.root,f),"snapshotDigest":"old"}
+ def test_migrated_legacy_heuristics_apply_to_incremental_scope(self):
+  old={"docGlobs":["docs/**"],"diffGlobs":["src/**"],"impactMap":[],"maxImpactedDocs":20,"reportPath":"reports/a_<YYYY-MM-DD>.md"}
+  f,_,_=c_migrate._map_config(__import__("json").dumps(old).encode("utf-8")); c_config._validate(f)
+  (self.root/"docs/a.md").write_text("widget"); (self.root/"docs/b.md").write_text("SKILL")
+  (self.root/"src/widget.py").write_text("before"); (self.root/"src/SKILL.md").write_text("before")
+  anchor=self._anchor(f); (self.root/"src/widget.py").write_text("after")
+  changed=c_scope.compute_changed(self.root,anchor,c_scope.snapshot_worktree(self.root,f),c_scope.compute_corpus(self.root,f),f["changes"]["diffGlobs"])
+  impacted,_=c_scope.compute_impacted(self.root,f,"p","incremental",c_scope.compute_corpus(self.root,f),changed)
+  self.assertEqual(next(row["provenance"] for row in impacted if row["path"]=="docs/a.md"),["heuristic"])
+  anchor=self._anchor(f); (self.root/"src/SKILL.md").write_text("after")
+  changed=c_scope.compute_changed(self.root,anchor,c_scope.snapshot_worktree(self.root,f),c_scope.compute_corpus(self.root,f),f["changes"]["diffGlobs"])
+  impacted,_=c_scope.compute_impacted(self.root,f,"p","incremental",c_scope.compute_corpus(self.root,f),changed)
+  self.assertIn("src/SKILL.md",[row["path"] for row in changed])
+  self.assertNotIn("docs/b.md",[row["path"] for row in impacted])
+  negative=__import__("json").loads(__import__("json").dumps(f)); negative["impact"]["heuristics"]["excludeBasenames"]=[]
+  impacted,_=c_scope.compute_impacted(self.root,negative,"p","incremental",c_scope.compute_corpus(self.root,negative),changed)
+  self.assertIn("docs/b.md",[row["path"] for row in impacted])
+ def test_heuristic_basename_exclusion_is_case_insensitive(self):
+  for excluded,changed_path,token in ((["skill.md","skill"],"x/SKILL.md","SKILL"),(["SKILL.MD","SKILL"],"x/skill.md","skill")):
+   with self.subTest(excluded=excluded), tempfile.TemporaryDirectory() as directory:
+    root=Path(directory); subprocess.run(["git","init"],cwd=root,stdout=subprocess.DEVNULL,check=True); (root/"docs").mkdir(); (root/"x").mkdir()
+    (root/"docs/a.md").write_text(token); (root/changed_path).write_text("before"); subprocess.run(["git","add","."],cwd=root,check=True); subprocess.run(["git","-c","user.name=x","-c","user.email=x@y","commit","-m","x"],cwd=root,stdout=subprocess.DEVNULL,check=True)
+    f=facts(); f["changes"]["diffGlobs"]=["x/**"]; f["impact"]["heuristics"]={"excludeBasenames":excluded}
+    anchor={"snapshot":c_scope.snapshot_worktree(root,f),"documents":c_scope.compute_corpus(root,f),"snapshotDigest":"old"}; (root/changed_path).write_text("after")
+    changed=c_scope.compute_changed(root,anchor,c_scope.snapshot_worktree(root,f),c_scope.compute_corpus(root,f),f["changes"]["diffGlobs"])
+    impacted,_=c_scope.compute_impacted(root,f,"p","incremental",c_scope.compute_corpus(root,f),changed)
+    self.assertNotIn("docs/a.md",[row["path"] for row in impacted])
+    f["impact"]["heuristics"]["excludeBasenames"]=[]
+    impacted,_=c_scope.compute_impacted(root,f,"p","incremental",c_scope.compute_corpus(root,f),changed)
+    self.assertIn("docs/a.md",[row["path"] for row in impacted])
  def test_u1_excluded_document_is_source(self):
   f=facts(); f["corpus"]["excludeDocGlobs"]=["docs/x.md"]; f["changes"]["diffGlobs"]=["docs/**"]; (self.root/"docs/x.md").write_text("x"); a=self._anchor(f); (self.root/"docs/x.md").write_text("y"); rows=c_scope.compute_changed(self.root,a,c_scope.snapshot_worktree(self.root,f),c_scope.compute_corpus(self.root,f),f["changes"]["diffGlobs"]); self.assertEqual(rows[0]["kind"],"source"); self.assertEqual(c_scope.compute_impacted(self.root,f,"p","incremental",c_scope.compute_corpus(self.root,f),rows)[0],[])
  def test_u2_new_exclusion_omits_existing_path(self):

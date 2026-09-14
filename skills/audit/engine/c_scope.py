@@ -130,7 +130,8 @@ def compute_impacted(repo, facts, profile_name, mode, corpus, changed):
         for row in changed:
             if h.get("excludeDocPathTokens") and row["kind"]=="document": continue
             base=os.path.basename(row["path"]); tokens.update((base,os.path.splitext(base)[0]))
-        tokens={x for x in tokens if len(x)>=h.get("minIdentifierLength",1) and x not in h.get("excludeBasenames",[])}
+        excluded={x.lower() for x in h.get("excludeBasenames",[])}
+        tokens={x for x in tokens if len(x)>=h.get("minIdentifierLength",1) and x.lower() not in excluded}
         for path in corpus:
             try: text=c_io.read_text(repo,path)
             except (c_io.IoRejected,FileNotFoundError): warnings.append("heuristic-skip:"+path); continue
