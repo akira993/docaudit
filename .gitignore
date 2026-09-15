@@ -9,3 +9,6 @@ data/
 tasks/
 .envrc
 /AGENTS.md
+/CLAUDE.md
+/.claude/
+/mdq.toml
