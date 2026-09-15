@@ -65,7 +65,7 @@ Create `.claude/docaudit.json` in the repository you want to audit. This minimal
 - `corpus.docGlobs` selects the documents to audit; `changes.diffGlobs` selects the files whose changes trigger an audit.
 - `impact.map` links changed sources to the documents that describe them; `impact.maxImpactedDocs` caps one incremental run.
 - `report.path` is where each run publishes its report; `<YYYY-MM-DD>` and the optional `[_NN]` suffix keep reports unique.
-- Link, existence and orphan checks on the documents always run. `documentChecks.frontMatterFields` and `documentChecks.indexFiles` add required front-matter fields and index files that every document should be reachable from; enable those two once your documents follow the convention, otherwise the first run reports the gaps.
+- The built-in link, existence and orphan checks belong to `L-PROJECT`, so they run under the `standard` and `extended` profiles and not under `focused`; the orphan check is skipped when the corpus has one document. `documentChecks.frontMatterFields` and `documentChecks.indexFiles` add required front-matter fields and index files that every document should be reachable from; enable those two once your documents follow the convention, otherwise the first run reports the gaps.
 - `projectChecks` runs your own commands as part of the audit, inside the macOS `sandbox-exec` sandbox. On Linux leave it empty: a non-empty `projectChecks` makes the run end `undecided`.
 - `enabledLayers` declares the layers the repository allows. The `extended` profile can only be selected when all seven layers are listed (see the profile table below).
 
@@ -90,7 +90,7 @@ Profiles decide which layers run:
 |---|---|---|
 | `focused` | scope, document verification | quick check of the impacted documents |
 | `standard` (default) | focused + project checks | the everyday audit |
-| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex backend: through Claude Code agents the security, adversarial and claim layers are incomplete and the run ends `undecided` without a verdict |
+| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex backend: through Claude Code agents `L-CLAIM` is incomplete (`workflow-adapter-unavailable`) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
 
 Outside Claude Code, with the Codex CLI available, the same audit runs as a command:
 

@@ -19,7 +19,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 ## 2. 最初の監査の指摘を直して、もう一度
 
 ```
-最新の docaudit report は reports/<file>.md にある。失敗した文書ごとに、食い違いとそれが矛盾しているコードを見せて、文書を正しくする最小の編集を提案して。私が承認した編集だけを適用して、それ以外は触らないで。その後 /docaudit:audit --full をもう一度実行して。
+最新の docaudit report は、監査の JSON 結果行の `reportPath`（このリポジトリの設定の `report.path` に従う）にある。失敗した文書ごとに、食い違いとそれが矛盾しているコードを見せて、文書を正しくする最小の編集を提案して。私が承認した編集だけを適用して、それ以外は触らないで。その後 /docaudit:audit --full をもう一度実行して。
 ```
 
 期待: すべての文書が合格し、blocking な所見が残っていなければ `CONSISTENT`（切れたローカルリンクや失敗した project check があると run は `NEEDS_FIX` のままです）。`CONSISTENT` の run が profile の anchor を書き、以後の run は incremental にできます。

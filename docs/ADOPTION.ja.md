@@ -111,7 +111,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 
 - anchor は profile ごとに `.claude/state/docaudit/anchors/` に保持されます。
 - profile の最初の anchor は、その profile の full の run が `CONSISTENT` で終わったときに書かれます。それまで、その profile の incremental な run は `undecided anchor-missing` で終わるので、`--full` を使い続けてください。
-- `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、PASS になるまで集合は縮まない。文書判定以外の blocking は受理されない。`standard` では切れたリンクと project check、`extended` では加えて security／adversarial／claim の blocking 所見を直す。
+- `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、PASS になるまで集合は縮まない。文書判定以外の blocking は受理されない。`focused` では生じず、`standard` と `extended` では切れたリンクと失敗した project check がそれにあたり、`extended` で加わるのは confirmed な claim だけである。security と adversarial の所見は non-blocking である。
 - 以後、その profile の run が `CONSISTENT` で終わるたびに anchor が前進します。`NEEDS_FIX`・`undecided`・`REFUSED` の run は anchor を動かさないので、次の incremental な run は同じ変更に新しい変更を加えて再び測ります。
 - profile を切り替えると新しいライフサイクルが始まります。`focused` の anchor は `standard` の run には使われません。
 
@@ -133,7 +133,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
 | `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 選択は同じだが、verdict を得るには Codex が必要 |
 
-`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。Claude Code の agent 経由では security・adversarial・claim の層が incomplete（`workflow-adapter-unavailable`）となり run は `undecided` で終わるので、`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
+`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。Claude Code の agent 経由では `L-CLAIM` が incomplete（`workflow-adapter-unavailable`）となり run は `undecided` で終わります。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 
 `extended` では、adversarial 層が影響を受けた文書ごとに根拠付きの矛盾を求め、security 層が文書化された手順・設定・秘密情報の扱い・権限を run ごとに 1 回レビューし、claim 層が adversarial の `FAIL` をひとつずつリポジトリと照合します。この 4 層の所見のうち verdict を `NEEDS_FIX` にできるのは confirmed な claim だけで、adversarial と security の所見は情報提供です。文書の `FAIL` はどの profile でも verdict を `NEEDS_FIX` にし、project check の `FAIL` は `L-PROJECT` を実行する profile（`standard`・`extended`）で `NEEDS_FIX` にします。
 

@@ -560,11 +560,15 @@ Workflow.
 
 ## Workflow document adapter
 
-All paths passed to an external agent, stored in a request, or stored in a
-receipt are repository-relative and include the state-root prefix. In this
-section, `R` means `.claude/state/docaudit/runs/<runId>`. A document ID is the
-first 16 hexadecimal characters of the SHA-256 of its repository-relative
-path.
+Except for `retrieval.indexDb` and `retrieval.indexCwd`, which are absolute for
+`index` and null for `grep`, every path passed to an external agent, stored in
+a request, or stored in a receipt is repository-relative. The `requestPath`
+handed to the Workflow, and the request's `judgementPath` and `donePath`,
+include the state-root prefix; document `path`, `changed` entries, and the
+receipt's `accepted[].path` do not. With no impacted documents the adapter
+writes neither request nor receipt. In this section, `R` means
+`.claude/state/docaudit/runs/<runId>`. A document ID is the first 16
+hexadecimal characters of the SHA-256 of its repository-relative path.
 
 The engine writes `R/requests/request-<k>.json` before waiting. It has exactly
 these fields:

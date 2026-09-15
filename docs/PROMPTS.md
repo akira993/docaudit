@@ -19,7 +19,7 @@ Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` 
 ## 2. Fix what the first audit found, then repeat
 
 ```
-The last docaudit report is at reports/<file>.md. For each failing document, show me the mismatch and the code it contradicts, then propose the smallest documentation edit that makes the document correct. Apply the edits I approve, and nothing else. Then run /docaudit:audit --full again.
+Open the last docaudit report at the `reportPath` printed in the audit's JSON result line (it follows `report.path` in this repository's configuration). For each failing document, show me the mismatch and the code it contradicts, then propose the smallest documentation edit that makes the document correct. Apply the edits I approve, and nothing else. Then run /docaudit:audit --full again.
 ```
 
 Expected: `CONSISTENT` once every document passes and no blocking finding remains (a broken local link or a failed project check also keeps the run at `NEEDS_FIX`). The `CONSISTENT` run writes the profile's anchor, and later runs can be incremental.
