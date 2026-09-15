@@ -62,7 +62,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 同じ migrate コマンドを --dry-run なしで実行して、できあがった .claude/docaudit.json を見せて。その後 /docaudit:audit --full を実行して。
 ```
 
-期待: dry run は `convertible`、または同じ legacy 入力での移行完了がすでに記録されていれば `unchanged` で終了値 0。終了値 1 は `not-convertible` で、結果の `reason` に理由が出ます。本番の移行は新しい file を書きます。移行完了後に同じ legacy 入力でもう一度実行すると、run が開いていても `unchanged` を報告して何も書きません。それ以外では run が開いている間は拒否され（`migration-run-open`）、変換結果とバイト列が異なる既存の `.claude/docaudit.json` の置き換えも拒否し（`migration-target-exists`）、移行完了後に legacy 入力が変わっていれば `migration-input-changed` で拒否します。
+期待: dry run は何も書かず、対象が無いか変換結果とバイト列が同じなら `convertible`、同じ legacy 入力の移行完了が記録済みなら `unchanged` で終了値 0。終了値 1 は `not-convertible` で、結果の `reason` に理由が出ます（バイト列が異なる既存対象を含む）。本番の移行は完了を記録し、`.claude/docaudit.json` は対象が無いときだけ書きます（バイト列が同じ既存対象はそのまま残します）。移行完了後に同じ legacy 入力で実行すると、run が開いていても `unchanged` を報告して何も書きません。それ以外では、run が開いている間（`migration-run-open`）、既存対象のバイト列が変換結果と異なる場合（`migration-target-exists`）、移行完了後に legacy 入力が変わった場合（`migration-input-changed`）に拒否します。
 
 ## 7. undecided や REFUSED の結果を理解する
 

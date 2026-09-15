@@ -62,7 +62,7 @@ Then, after reviewing:
 Run the same migrate command without --dry-run, show me the resulting .claude/docaudit.json, and then run /docaudit:audit --full.
 ```
 
-Expected: the dry run exits 0 with `convertible`, or with `unchanged` when a completed migration with the same legacy inputs is already recorded; exit 1 means `not-convertible` and the result's `reason` says why. The full migration writes the new file. Run again with the same legacy inputs after a completed migration, it reports `unchanged` and writes nothing, even while a run is open; otherwise it refuses to run while a run is open (`migration-run-open`), refuses to replace an existing `.claude/docaudit.json` whose bytes differ from the conversion (`migration-target-exists`), and rejects changed legacy inputs after a completed migration (`migration-input-changed`).
+Expected: the dry run writes nothing and exits 0 with `convertible` (the target is absent or byte-identical to the conversion) or `unchanged` (the same legacy inputs already completed a migration); exit 1 means `not-convertible` and the result's `reason` says why, including an existing target whose bytes differ. A full migration records the completion and writes `.claude/docaudit.json` only when it is absent (an existing byte-identical target is kept as is); with the same legacy inputs after a completed migration it reports `unchanged` and writes nothing, even while a run is open; otherwise it refuses while a run is open (`migration-run-open`), when an existing target's bytes differ from the conversion (`migration-target-exists`), or when the legacy inputs changed after a completed migration (`migration-input-changed`).
 
 ## 7. Understand an undecided or REFUSED result
 

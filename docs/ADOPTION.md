@@ -70,11 +70,11 @@ Set `impact.maxImpactedDocs` to the largest set you are willing to verify in one
 
 ## 6. Migrate a legacy configuration
 
-If the repository still has a legacy `.claude/doc-audit.json`, the `migrate` subcommand converts it:
+If the repository still has a legacy .claude/doc-audit.json, the `migrate` subcommand converts it:
 
 ```sh
 python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .   # shows the conversion; exit 1 = not convertible
-python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # writes .claude/docaudit.json
+python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # writes .claude/docaudit.json when it is absent
 ```
 
 The dry run prints a result of `convertible`, `not-convertible`, or `unchanged`, together with the converted configuration, `counts` (legacy history entries, whether a last-run record exists, and the list of dropped keys), the inputs it read with their hashes, `anchor` (never migrated), and `runOpen`. Project facts (document globs, diff globs, the impact map, report path, front-matter and index settings, heuristics, single-source-of-truth entries) are mapped to their 1.0.0 keys; migration writes heuristics with the earlier-release defaults filled in. Keys that described the old installation, command mappings, or optional tools are dropped, because 1.0.0 detects tool availability instead of configuring it. The full disposition table is in CONFIG-1.0.0.md, "Old-key disposition".

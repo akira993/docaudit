@@ -70,11 +70,11 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 
 ## 6. 旧設定を移行する
 
-リポジトリに legacy な `.claude/doc-audit.json` が残っている場合、`migrate` サブコマンドが変換します。
+リポジトリに legacy な .claude/doc-audit.json が残っている場合、`migrate` サブコマンドが変換します。
 
 ```sh
 python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .   # 変換内容を表示。終了値 1 = 変換不可
-python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # .claude/docaudit.json を書く
+python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --repo-root .             # 対象が無いときだけ .claude/docaudit.json を書く
 ```
 
 dry run は `convertible`・`not-convertible`・`unchanged` のいずれかの結果と、変換後の設定、`counts`（legacy 履歴の件数・last-run 記録の有無・破棄されたキーの一覧）、読んだ入力とそのハッシュ、`anchor`（移行されない）、`runOpen` を表示します。プロジェクトの事実（文書 glob・差分 glob・impact map・report path・front matter と index の設定・ヒューリスティクス・唯一情報源の項目）は 1.0.0 のキーに対応付けられ、ヒューリスティクスは以前の版の既定値を補って書かれます。旧 install の詳細・コマンド対応・任意ツールを記述していたキーは破棄されます。1.0.0 はツールの利用可能性を設定ではなく検出で決めるためです。対応の全表は CONFIG-1.0.0.md の「Old-key disposition」にあります。

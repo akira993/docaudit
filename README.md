@@ -9,7 +9,7 @@ A completed run ends in one verdict, `CONSISTENT` or `NEEDS_FIX`, backed by a pe
 ## Requirements
 
 - macOS or Linux.
-- Claude Code (the plugin host) and git.
+- git. Claude Code is needed only to run docaudit as its plugin skill; outside Claude Code the engine runs as a command and needs the Codex CLI.
 - Python 3.12 or newer. The engine uses only the standard library.
 - Optional: the Codex CLI. When the engine's availability check passes (`codex` on `PATH`, a working `codex --version` and `codex exec --help`, and a readable `auth.json` in the Codex home) it sends document verification to Codex; otherwise, inside Claude Code, the skill runs the verification through Claude Code agents.
 - Node.js is needed only to run the repository's own test suite.
@@ -69,7 +69,7 @@ Create `.claude/docaudit.json` in the repository you want to audit. This minimal
 - `projectChecks` runs your own commands as part of the audit, inside the macOS `sandbox-exec` sandbox. On Linux leave it empty: a non-empty `projectChecks` makes the run end `undecided`.
 - `enabledLayers` declares the layers the repository allows. The `extended` profile can only be selected when all seven layers are listed (see the profile table below).
 
-Every key, its default and its validation rule is documented in [docs/CONFIG-1.0.0.md](docs/CONFIG-1.0.0.md). If the repository still has a legacy `.claude/doc-audit.json`, `python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .` shows how it would be converted (exit status 1 means it cannot be converted), and the same command without `--dry-run` writes the new `.claude/docaudit.json` next to the legacy file.
+Every key, its default and its validation rule is documented in [docs/CONFIG-1.0.0.md](docs/CONFIG-1.0.0.md). If the repository still has a legacy .claude/doc-audit.json, `python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .` shows how it would be converted (exit status 1 means it cannot be converted), and the same command without `--dry-run` writes the new `.claude/docaudit.json` next to the legacy file.
 
 ## Run an audit
 

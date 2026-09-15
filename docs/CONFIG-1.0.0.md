@@ -67,8 +67,8 @@ For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.md
 ## Migration
 
 `migrate` reads exactly three legacy inputs: required
-`.claude/doc-audit.json`, optional `.claude/state/docaudit-history.json`, and
-optional `.claude/state/docaudit-last-run.json`. The config and last-run limits
+.claude/doc-audit.json, optional .claude/state/docaudit-history.json, and
+optional .claude/state/docaudit-last-run.json. The config and last-run limits
 are 1 MiB and the history limit is 64 MiB. Input SHA-256 values cover the exact
 bytes read. Legacy anchors, run directories, and reports are not read or
 migrated.
