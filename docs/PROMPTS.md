@@ -2,7 +2,7 @@
 
 日本語版: [PROMPTS.ja.md](PROMPTS.ja.md)
 
-Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full` and `--profile focused|standard|extended`. Everything the audit reports is read-only: docaudit never edits a document, so fixing what it finds is a separate step that you ask for explicitly.
+Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full`, `--accept-baseline` (only together with `--full`) and `--profile focused|standard|extended`. Everything the audit reports is read-only: docaudit never edits a document, so fixing what it finds is a separate step that you ask for explicitly.
 
 Engine commands below use the skills-dir path `~/.claude/skills/docaudit/skills/audit/engine`; with a marketplace install, substitute the engine path from the README's install section.
 
@@ -67,7 +67,7 @@ Expected: the dry run writes nothing and exits 0 with `convertible` (the target 
 ## 7. Understand an undecided or REFUSED result
 
 ```
-The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.1.1 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
+The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.1.2 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
 ```
 
 Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full`), `worktree-modified` (something wrote into the repository during the audit; run again without other tools active), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).

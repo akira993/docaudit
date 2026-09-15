@@ -2,7 +2,7 @@
 
 English: [PROMPTS.md](PROMPTS.md)
 
-Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。skill は `/docaudit:audit`、オプションは `--full` と `--profile focused|standard|extended` です。監査の報告はすべて読み取り専用で、docaudit が文書を編集することはありません。見つかった問題を直すのは別の作業で、明示的に依頼します。
+Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。skill は `/docaudit:audit`、オプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended` です。監査の報告はすべて読み取り専用で、docaudit が文書を編集することはありません。見つかった問題を直すのは別の作業で、明示的に依頼します。
 
 以下の engine コマンドは skills-dir の path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は README の install 節にある engine path に読み替えてください。
 
@@ -67,7 +67,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 ## 7. undecided や REFUSED の結果を理解する
 
 ```
-直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.1.1 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
+直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.1.2 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
 ```
 
 期待: 説明と次の一手。よくある場合: `anchor-missing`（`--full` で実行）、`worktree-modified`（監査中に何かがリポジトリへ書き込んだ。他のツールを止めて再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
