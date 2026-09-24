@@ -63,6 +63,7 @@ class DispatchTests(unittest.TestCase):
         self.assertIn("Search recursively before reporting a repository path as missing", prompt)
         self.assertIn("documented path is wrong", prompt)
         self.assertIn("hidden directories such as", prompt)
+        self.assertIn("does not contradict a document that says the file is no longer in the tree", prompt)
 
     def test_adapter_requires_explicit_reservation_callback(self):
         with tempfile.TemporaryDirectory() as directory:

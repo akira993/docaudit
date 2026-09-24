@@ -533,7 +533,7 @@ output limit, 600 second document timeout, five second termination grace, and
 <schema-file> -o <output-file> -`. The prompt is supplied from a private file;
 it names the relative target, provenance, mode, up to 100 changed paths, and an
 identity containing only run ID and relative path. It instructs the model to
-judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. The prompt contains neither the content hash, document bytes, nor private absolute paths.
+judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. A copy found only inside an ignored nested checkout (a directory with its own .git file or directory, such as a worktree under .worktrees/) is not treated as the file existing elsewhere or as the wrong-path location. The prompt contains neither the content hash, document bytes, nor private absolute paths.
 
 The output object has exactly `runId`, `path`, `verdict`, `rationale`, and
 `evidence`. Verdict is `PASS`, `WARN`, or `FAIL`; evidence is a string array.

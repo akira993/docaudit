@@ -117,7 +117,7 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn("--abandon", skill)
         self.assertIn("outside the audit scope", agent)
         self.assertIn("outside the audit scope", source)
-        for text in ("Search recursively before reporting a repository path as missing", "documented path is wrong", "hidden directories such as"):
+        for text in ("Search recursively before reporting a repository path as missing", "documented path is wrong", "hidden directories such as", "does not contradict a document that says the file is no longer in the tree"):
             self.assertIn(text, agent)
             self.assertIn(text, source)
 
