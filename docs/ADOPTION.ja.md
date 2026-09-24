@@ -26,7 +26,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 - **changes（変更）。** `changes.diffGlobs` が、変更されたら監査を起動する file を選びます。incremental な run は、同じ profile の最後に受理された run と作業木を比べます。
 - **impact map（影響対応表）。** `impact.map` が、変更されたソースとそれを説明する文書を結び付けます。変更された file・対応表・唯一情報源の項目・（設定した場合は）file 名ヒューリスティクスが影響を受ける文書の集合を決め、`impact.maxImpactedDocs` がその上限になります。
 - **層と profile。** run は層（layer）を実行します。`L-SCOPE` は影響集合の計算、`L-DOC` は影響を受けた各文書の検証、`L-PROJECT` は組み込みの文書チェックと `projectChecks` の実行、`L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` は追加のレビュー層です。profile（`focused`・`standard`・`extended`）がどの層を走らせるかを選び、設定の `enabledLayers` がリポジトリとして許可する層を宣言します。
-- **verdict と anchor。** 完了した run は `CONSISTENT` か `NEEDS_FIX` で終わります。`CONSISTENT` の run はその profile の anchor を前進させ、次の incremental な run はその anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
+- **verdict と anchor。** verdict は `CONSISTENT` か `NEEDS_FIX` のどちらかです。`CONSISTENT` の run はその profile の anchor を前進させ、次の incremental な run はその anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
 
 文書の検証は backend が行います。Codex CLI が engine の利用可能性検査に合格していればそれを使い、そうでなければ Claude Code の中では skill が workflow を通じて Claude Code の agent に検証を渡し、終わったら engine を再開します。
 
