@@ -711,10 +711,10 @@ an outcome.
 
 ## Workflow launcher
 
-The launcher first runs `python3 "$CLAUDE_SKILL_DIR/engine" audit $ARGUMENTS`
+The launcher first runs `python3 -B "$CLAUDE_SKILL_DIR/engine" audit $ARGUMENTS`
 and reads only its final JSON line. While `nextAction` is `invoke-workflow`, it
 invokes `Workflow({name: "docaudit:docaudit-verify", args: {runId,
-requestPath}})` and then runs `python3 "$CLAUDE_SKILL_DIR/engine" resume
+requestPath}})` and then runs `python3 -B "$CLAUDE_SKILL_DIR/engine" resume
 <runId>`. It repeats that pair at most three times. If the limit is exceeded it
 runs `resume <runId> --abandon`. For `done` or `abort`, it displays the outcome,
 reason, and report path that are present and stops.

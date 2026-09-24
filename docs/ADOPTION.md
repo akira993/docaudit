@@ -2,7 +2,7 @@
 
 日本語版: [ADOPTION.ja.md](ADOPTION.ja.md)
 
-This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.1.2 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
+This guide takes a repository from "no audit" to "every change is checked against its documentation". It assumes docaudit 1.1.3 is installed as described in the [README](../README.md); the configuration reference is [CONFIG-1.0.0.md](CONFIG-1.0.0.md), and copy-paste prompts are in [PROMPTS.md](PROMPTS.md). The skill's instruction file (`SKILL.md`) is written in Japanese.
 
 Commands in this guide use the engine path of the skills-dir install, `~/.claude/skills/docaudit/skills/audit/engine`. If you installed through the marketplace, substitute the engine path given in the README's install section.
 
@@ -37,7 +37,7 @@ Document verification is performed by a backend. When the Codex CLI passes the e
 | macOS or Linux | `projectChecks` run only on macOS (they use `sandbox-exec`). |
 | Claude Code and git | The skill runs inside Claude Code; git supplies the diff and the snapshot. |
 | Python 3.12 or newer | The engine uses only the standard library. |
-| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is readable. Required in practice for the `extended` profile (section 8). |
+| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). Required in practice for the `extended` profile (section 8). |
 | Node.js (optional) | Only for running the repository's own test suite. |
 
 A repository needs nothing beyond the configuration file. Markdown documents anywhere in the tree can be audited; the report path and the state directory are created on the first run.
@@ -140,7 +140,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 
 ## 9. Project checks
 
-`L-PROJECT` always runs four read-only checks over the audited documents: required front-matter fields (WARN), local Markdown links (a missing target is a blocking FAIL), path-like backtick tokens that point at nothing (WARN), and documents that no other document or index file links to (WARN). `documentChecks.layerGlobs` removes matching documents from a check, for example to exempt generated indexes from the orphan check.
+`L-PROJECT` always runs four read-only checks over the audited documents: required front-matter fields (WARN), local Markdown links (a missing target is a blocking FAIL), path-like backtick tokens that point at nothing (WARN), and documents that no other document or index file links to (WARN). `documentChecks.layerGlobs` removes matching documents from a check, for example to exempt generated indexes from the orphan check. When the sealed corpus has only one document, the orphan check does not run and records `orphan: skipped`.
 
 `projectChecks` adds your own commands. Each entry names a check ID, an `argv`, a timeout, and optionally a working directory. The command runs on macOS inside a `sandbox-exec` profile that forbids writes outside the private temporary directory, and must print a JSON object with a `findings` array, each finding having `id`, `summary`, `severity` (`INFO`, `WARN`, or `FAIL`), and optionally `path`. A `FAIL` finding is blocking: the run ends `NEEDS_FIX` even when every document passed. A nonzero exit, a timeout, or invalid output is itself a blocking `FAIL` finding. On Linux leave `projectChecks` empty: a non-empty list ends the run `undecided sandbox-unavailable`.
 

@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.1.2 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.1.3 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 
@@ -37,7 +37,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | Claude Code と git | skill は Claude Code の中で動き、git が差分とスナップショットを提供します。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読めるときに使われます。`extended` profile で verdict を得るには事実上必須です（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。`extended` profile で verdict を得るには事実上必須です（第 8 節）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
 リポジトリ側に必要なのは設定 file だけです。tree 内のどこにある Markdown 文書でも監査でき、report の置き場所と state ディレクトリは最初の run で作られます。
@@ -140,7 +140,7 @@ skill は前の session から残った run を回復しません。手作業か
 
 ## 9. プロジェクトチェック
 
-`L-PROJECT` は監査対象の文書に対して読み取り専用のチェックを常に 4 つ実行します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。
+`L-PROJECT` は監査対象の文書に対して読み取り専用のチェックを常に 4 つ実行します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
 
 `projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。Linux では `projectChecks` を空にしてください。空でないと run は `undecided sandbox-unavailable` で終わります。
 
