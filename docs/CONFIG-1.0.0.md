@@ -307,8 +307,8 @@ deterministic request, completion, judgement, and receipt files below
 
 ## Journal state machine
 
-The normal order is `opened`, `config-sealed`, `scoped`, `planned`,
-`capability-detected`, `manifest-intent`, `sealed`, one or more
+The normal order is `opened`, `run-options`, `config-sealed`, `scoped`,
+`planned`, `capability-detected`, `manifest-intent`, `sealed`, one or more
 `layer-started`/`layer-done` pairs, `verdict-intent`, `gated`, `rendered`,
 `write-begin`, `write-end`, `reported`, `recorded`, and `closed`.
 `report-failed` replaces `reported` when publication fails.
