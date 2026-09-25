@@ -4,7 +4,7 @@ docaudit audits a repository's Markdown documentation against the code and confi
 
 New to docaudit? Read [docs/ADOPTION.md](docs/ADOPTION.md) (日本語: [docs/ADOPTION.ja.md](docs/ADOPTION.ja.md)) for the full adoption guide, and [docs/PROMPTS.md](docs/PROMPTS.md) (日本語: [docs/PROMPTS.ja.md](docs/PROMPTS.ja.md)) for copy-paste prompts.
 
-A run that ends in one of the two verdicts, `CONSISTENT` or `NEEDS_FIX`, is backed by a per-document judgement whose evidence strings (the Codex backend is asked to cite repository-relative `file:line` in its rationale; Claude Code agents are asked for repository-relative evidence) are kept in the run's records, and publishes a Markdown report into your repository. A run that cannot reach a verdict ends as `undecided` with a machine-readable `reason` (for example when no verification backend is available), and a run whose sealed evidence or working tree fails the gate's integrity checks (for example, the evidence ledger was tampered with, the working tree changed during the audit, or claim records are inconsistent) ends as `REFUSED`. Runs are change-driven: after the first full audit, later runs look only at the documents impacted by what changed.
+A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it cannot reach one, `undecided` or `REFUSED`. See [docs/ADOPTION.md](docs/ADOPTION.md) for what each outcome means and how to act on it. A run that ends `CONSISTENT` or `NEEDS_FIX` is backed by a per-document judgement and publishes a Markdown report into your repository, with the evidence kept in the run's records. Runs are change-driven: after the first full audit, later runs look only at the documents impacted by what changed.
 
 ## Requirements
 
@@ -64,12 +64,12 @@ Create `.claude/docaudit.json` in the repository you want to audit. This minimal
 
 - `corpus.docGlobs` selects the documents to audit; `changes.diffGlobs` selects the files whose changes trigger an audit.
 - `impact.map` links changed sources to the documents that describe them; `impact.maxImpactedDocs` caps one incremental run.
-- `report.path` is where each run publishes its report; `<YYYY-MM-DD>` and the optional `[_NN]` suffix keep reports unique.
+- `report.path` is where each run publishes its report; `<YYYY-MM-DD>` and the optional `[_NN]` placeholder keep reports unique.
 - The built-in link, existence and orphan checks belong to `L-PROJECT`, so they run under the `standard` and `extended` profiles and not under `focused`; the orphan check is skipped when the corpus has one document. `documentChecks.frontMatterFields` and `documentChecks.indexFiles` add required front-matter fields and index files that every document should be reachable from; enable those two once your documents follow the convention, otherwise the first run reports the gaps.
 - `projectChecks` runs your own commands as part of the audit, inside the macOS `sandbox-exec` sandbox. On Linux leave it empty: a non-empty `projectChecks` makes the run end `undecided`.
 - `enabledLayers` declares the layers the repository allows. The `extended` profile can only be selected when all seven layers are listed (see the profile table below).
 
-Every key, its default and its validation rule is documented in [docs/CONFIG-1.0.0.md](docs/CONFIG-1.0.0.md). If the repository still has a legacy .claude/doc-audit.json, `python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .` shows how it would be converted (exit status 1 means it cannot be converted), and the same command without `--dry-run` writes the new `.claude/docaudit.json` next to the legacy file.
+Every key, its default and its validation rule is documented in [docs/CONFIG-1.0.0.md](docs/CONFIG-1.0.0.md). If the repository still has a legacy .claude/doc-audit.json, `python3 ~/.claude/skills/docaudit/skills/audit/engine migrate --dry-run --repo-root .` shows how it would be converted (exit status 1 means it cannot be converted), and the same command without `--dry-run` writes the new `.claude/docaudit.json` next to the legacy file, but only when that file does not already exist there.
 
 ## Run an audit
 

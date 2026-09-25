@@ -26,7 +26,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 - **changes（変更）。** `changes.diffGlobs` が、変更されたら監査を起動する file を選びます。incremental な run は、同じ profile の最後に受理された run と作業木を比べます。
 - **impact map（影響対応表）。** `impact.map` が、変更されたソースとそれを説明する文書を結び付けます。変更された file・対応表・唯一情報源の項目・（設定した場合は）file 名ヒューリスティクスが影響を受ける文書の集合を決め、`impact.maxImpactedDocs` がその上限になります。
 - **層と profile。** run は層（layer）を実行します。`L-SCOPE` は影響集合の計算、`L-DOC` は影響を受けた各文書の検証、`L-PROJECT` は組み込みの文書チェックと `projectChecks` の実行、`L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` は追加のレビュー層です。profile（`focused`・`standard`・`extended`）がどの層を走らせるかを選び、設定の `enabledLayers` がリポジトリとして許可する層を宣言します。
-- **verdict と anchor。** verdict は `CONSISTENT` か `NEEDS_FIX` のどちらかです。`CONSISTENT` の run はその profile の anchor を前進させ、次の incremental な run はその anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
+- **verdict と anchor。** verdict は `CONSISTENT` か `NEEDS_FIX` のどちらかです。`CONSISTENT` の run はその profile の anchor を前進させ、`--accept-baseline` で受理された full の `NEEDS_FIX` の run も同様に anchor を前進させます。次の incremental な run はどちらの場合も、その anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
 
 文書の検証は backend が行います。Codex CLI が engine の利用可能性検査に合格していればそれを使い、そうでなければ Claude Code の中では skill が workflow を通じて Claude Code の agent に検証を渡し、終わったら engine を再開します。
 
@@ -40,7 +40,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。`extended` profile で verdict を得るには事実上必須です（第 8 節）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
-リポジトリ側に必要なのは設定 file だけです。tree 内のどこにある Markdown 文書でも監査でき、report の置き場所と state ディレクトリは最初の run で作られます。
+リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、report の置き場所と state ディレクトリは最初の run で作られます。
 
 ## 4. 設定を書く
 
@@ -49,7 +49,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 1. `corpus.docGlobs`: 監査する文書。生成物や取り込んだ文書は `corpus.excludeDocGlobs` で除外します。
 2. `changes.diffGlobs`: 変更が監査を起動する file。通常はソース・設定・文書のディレクトリをまとめて指定します。
 3. `impact.map`: ソース領域ごとに最低 1 項目（第 5 節）。
-4. `report.path`: basename が空でない接頭辞に続けて `<YYYY-MM-DD>` をちょうど 1 つ持ち、任意で `[_NN]` が続く Markdown の path。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。ディレクトリは最初の report 公開時に作られます。report は上書きされず、同じ日の 2 回目は `_02` が付きます。
+4. `report.path`: basename が空でない接頭辞に続けて `<YYYY-MM-DD>` をちょうど 1 つ持ち、`[_NN]` を basename 内の任意の位置に高々 1 回置ける（`<YYYY-MM-DD>` との前後関係は問わない）Markdown の path。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。ディレクトリは最初の report 公開時に作られます。report は上書きされず、同じ日の 2 回目は `_02` が付きます。
 
 `extended` profile を使う予定がなければ `enabledLayers` は `["L-SCOPE", "L-DOC", "L-PROJECT"]` のままにし（第 8 節）、`documentChecks.frontMatterFields` と `documentChecks.indexFiles` は文書がその規約に従うようになるまで空にしておきます。未知のキーは拒否されるので、綴り間違いは無視されずに `config-invalid:<detail>` として検証に失敗します。
 
@@ -113,7 +113,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 - anchor は profile ごとに `.claude/state/docaudit/anchors/` に保持されます。
 - profile の最初の anchor は、その profile の full の run が `CONSISTENT` で終わったときに書かれます。それまで、その profile の incremental な run は `undecided anchor-missing` で終わるので、`--full` を使い続けてください。
 - `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、PASS になるまで集合は縮まない。文書判定以外の blocking は受理されない。`focused` では生じず、`standard` と `extended` では切れたリンクと失敗した project check がそれにあたり、`extended` で加わるのは confirmed な claim だけである。security と adversarial の所見は non-blocking である。
-- 以後、その profile の run が `CONSISTENT` で終わるたびに anchor が前進します。`NEEDS_FIX`・`undecided`・`REFUSED` の run は anchor を動かさないので、次の incremental な run は同じ変更に新しい変更を加えて再び測ります。
+- 以後、その profile の run が `CONSISTENT` で終わるたびに anchor が前進し、上と同じ条件で `--accept-baseline` により受理された full の `NEEDS_FIX` の run も同様に前進させます。それ以外の `NEEDS_FIX` の run、および `undecided`・`REFUSED` の run は anchor を動かさないので、次の incremental な run は同じ変更に新しい変更を加えて再び測ります。
 - profile を切り替えると新しいライフサイクルが始まります。`focused` の anchor は `standard` の run には使われません。
 
 ### run は同時に 1 つ
@@ -166,14 +166,14 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided abandoned` | run が放棄された | 再実行 |
 | `REFUSED worktree-modified` | run 中に作業木が変わった | run 中は file を編集・生成しない。再実行 |
 | `REFUSED config-drift` | run 中に `.claude/docaudit.json` が変わった | 再実行 |
-| その他の `REFUSED` | 封印された run の契約が整合性検査に失敗（lease・封印・証拠ハッシュ・層の集合・backend・judgement） | `runs/<runId>/` を確認して再実行 |
+| その他の `REFUSED` | 封印された run の契約が整合性検査に失敗（lease・封印・証拠ハッシュ・層の集合・backend・judgement・adversarial と claim の整合性） | `runs/<runId>/` を確認して再実行 |
 
 ## 11. 困ったとき
 
-- **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で `..` を含まず、`report.path` は `.md` で終わり、`<YYYY-MM-DD>` をちょうど 1 つ含み、その前に空でない basename の接頭辞が必要です。
+- **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で、親ディレクトリ参照の `..` という path セグメント（例: `a/../b`）を含まず、`report.path` は `.md` で終わり、`<YYYY-MM-DD>` をちょうど 1 つ含み、その前に空でない basename の接頭辞が必要です。
 - **`config-needs-migration`。** legacy file しかありません。`migrate` を実行してください（第 6 節）。
 - **最初の run で front matter や orphan の警告が大量に出る。** どれも non-blocking です。時間をかけて直すか、`documentChecks.layerGlobs` で文書を除外してください。
 - **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままなので、次の監査の前に再開か放棄をします。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
 - **`mutex-timeout` または `run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
-- **想定外の file がリポジトリに書かれた。** engine がリポジトリ内に書くのは report と `.claude/state/docaudit/` だけです。repo 直下の `.mdq/`（mdq の索引と利用記録）だけは例外で、1.0.1 以降 gate は無視します。それ以外は監査中に動いた別のツールによるもので、run が `REFUSED worktree-modified` になる原因でもあります。
+- **想定外の file がリポジトリに書かれた。** 監査 run 中に engine がリポジトリ内に書くのは report と `.claude/state/docaudit/` 配下の run 状態だけです。repo 直下の `.mdq/`（mdq の索引と利用記録）だけは例外で、1.0.1 以降 gate は無視します。それ以外は監査中に動いた別のツールによるもので、run が `REFUSED worktree-modified` になる原因でもあります。

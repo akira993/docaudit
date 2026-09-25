@@ -26,7 +26,7 @@ Five ideas explain everything else:
 - **Changes.** `changes.diffGlobs` selects the files whose changes trigger an audit. An incremental run compares the working tree with the last accepted run of the same profile.
 - **Impact map.** `impact.map` links changed sources to the documents that describe them. The changed files, the map, the single-source-of-truth entries, and (when configured) the file-name heuristics decide which documents are impacted; `impact.maxImpactedDocs` caps that set.
 - **Layers and profiles.** A run executes layers. `L-SCOPE` computes the impacted set, `L-DOC` verifies each impacted document, `L-PROJECT` runs the built-in document checks and your `projectChecks`; `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` add review layers. A profile (`focused`, `standard`, `extended`) selects which layers run; `enabledLayers` in the configuration declares which layers the repository allows.
-- **Verdict and anchor.** A verdict is `CONSISTENT` or `NEEDS_FIX`. A `CONSISTENT` run advances the profile's anchor, and the next incremental run measures changes from that anchor. A run that cannot reach a verdict ends `undecided` with a reason, and a run whose sealed run contract fails the gate's integrity checks ends `REFUSED`.
+- **Verdict and anchor.** A verdict is `CONSISTENT` or `NEEDS_FIX`. A `CONSISTENT` run advances the profile's anchor, and a full `NEEDS_FIX` run accepted with `--accept-baseline` advances it the same way; the next incremental run measures changes from that anchor either way. A run that cannot reach a verdict ends `undecided` with a reason, and a run whose sealed run contract fails the gate's integrity checks ends `REFUSED`.
 
 Document verification is performed by a backend. When the Codex CLI passes the engine's availability check it is used; otherwise, inside Claude Code, the skill hands the verification to Claude Code agents through a workflow and resumes the engine when they finish.
 
@@ -40,7 +40,7 @@ Document verification is performed by a backend. When the Codex CLI passes the e
 | Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). Required in practice for the `extended` profile (section 8). |
 | Node.js (optional) | Only for running the repository's own test suite. |
 
-A repository needs nothing beyond the configuration file. Markdown documents anywhere in the tree can be audited; the report path and the state directory are created on the first run.
+A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the report path and the state directory are created on the first run.
 
 ## 4. Write the configuration
 
@@ -49,7 +49,7 @@ Create `.claude/docaudit.json`. Start from the minimal example in the README and
 1. `corpus.docGlobs`: the documents to audit. Exclude generated or vendored documents with `corpus.excludeDocGlobs`.
 2. `changes.diffGlobs`: the files whose changes should trigger an audit. Usually the source, configuration, and documentation directories together.
 3. `impact.map`: at least one entry per source area (section 5).
-4. `report.path`: a Markdown path whose basename has a nonempty prefix before exactly one `<YYYY-MM-DD>`, optionally followed by `[_NN]`, for example `reports/audit_<YYYY-MM-DD>[_NN].md`. The directory is created when the first report is published. Reports are never overwritten; a second run on the same day gets `_02`.
+4. `report.path`: a Markdown path whose basename has a nonempty prefix before exactly one `<YYYY-MM-DD>`, and may contain `[_NN]` once anywhere in the basename (its position relative to `<YYYY-MM-DD>` does not matter), for example `reports/audit_<YYYY-MM-DD>[_NN].md`. The directory is created when the first report is published. Reports are never overwritten; a second run on the same day gets `_02`.
 
 Leave `enabledLayers` at `["L-SCOPE", "L-DOC", "L-PROJECT"]` unless you intend to run the `extended` profile (section 8), and keep `documentChecks.frontMatterFields` and `documentChecks.indexFiles` empty until your documents follow those conventions. Unknown keys are rejected, so a typo fails validation with `config-invalid:<detail>` instead of being ignored.
 
@@ -113,7 +113,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 - Anchors are kept per profile under `.claude/state/docaudit/anchors/`.
 - The first anchor of a profile is written by the first full run of that profile that ends `CONSISTENT`. Until then, an incremental run of that profile ends `undecided anchor-missing`, so keep using `--full`.
 - A full `NEEDS_FIX` run with `--accept-baseline` also writes its first anchor when every blocking item is an `L-DOC` judgement and its report was published. A known FAIL document is then not rechecked only when it is not impacted by `impact.map`, `ssotSources`, or heuristics and `changes.regressionRecheck` is disabled. Set `changes.regressionRecheck: true` to recheck the profile's latest FAIL documents each time; they count toward `impact.maxImpactedDocs`, stop the whole run with `impact-limit` when exceeded, and do not leave that set until they pass. Non-document blocking findings are never accepted: `focused` produces none; in `standard` and `extended` they are broken links and failed project checks; `extended` adds only confirmed claims, while security and adversarial findings are non-blocking.
-- Every later run of the profile that ends `CONSISTENT` advances the anchor. A `NEEDS_FIX`, `undecided`, or `REFUSED` run leaves it unchanged, so the next incremental run measures the same changes again, plus anything new.
+- Every later run of the profile that ends `CONSISTENT` advances the anchor, and a later full `NEEDS_FIX` run accepted with `--accept-baseline` under the same condition as above advances it the same way. Any other `NEEDS_FIX` run, and every `undecided` or `REFUSED` run, leaves the anchor unchanged, so the next incremental run measures the same changes again, plus anything new.
 - Switching profiles starts a new lifecycle: a `focused` anchor does not serve a `standard` run.
 
 ### One run at a time
@@ -166,14 +166,14 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 | `undecided abandoned` | the run was abandoned | run again |
 | `REFUSED worktree-modified` | the working tree changed during the run | do not edit or generate files while a run is open; run again |
 | `REFUSED config-drift` | `.claude/docaudit.json` changed during the run | run again |
-| other `REFUSED` reasons | the sealed run contract failed an integrity check (lease, seal, evidence hashes, layer set, backend, judgements) | inspect `runs/<runId>/`; run again |
+| other `REFUSED` reasons | the sealed run contract failed an integrity check (lease, seal, evidence hashes, layer set, backend, judgements, adversarial and claim consistency) | inspect `runs/<runId>/`; run again |
 
 ## 11. Troubleshooting
 
-- **`config-invalid:<detail>` on every run.** The detail names the offending key. Paths must be repository-relative without `..`; `report.path` must end in `.md`, contain exactly one `<YYYY-MM-DD>`, and have a nonempty basename prefix before it.
+- **`config-invalid:<detail>` on every run.** The detail names the offending key. Paths must be repository-relative without a `..` path segment (a parent-directory reference, for example `a/../b`); `report.path` must end in `.md`, contain exactly one `<YYYY-MM-DD>`, and have a nonempty basename prefix before it.
 - **`config-needs-migration`.** Only the legacy file exists. Run `migrate` (section 6).
 - **The first run reports many front-matter or orphan warnings.** They are non-blocking. Fix them over time, or exempt documents with `documentChecks.layerGlobs`.
 - **`history-corrupt`.** `history.jsonl` has a malformed line, is not a regular file, is not UTF-8, or contains an overlong line; an anchor file under `anchors/` is unreadable or malformed; or the anchor candidate that a `CONSISTENT` run points at is unreadable or does not match its recorded hash. The engine neither reads nor appends history until this is repaired. Keep a copy of the whole state directory, then find which file is broken: a malformed history line is fixed by moving the history file aside while preserving its valid lines under another name and starting a new history file; a broken anchor is fixed by moving that profile's anchor file aside, after which the profile needs a new `--full` run. If the failure happened inside a run (exit status 4), that run is still open: resume or abandon it before the next audit. If `history.jsonl` itself cannot be read because of permissions, it stops with exit status 4 and reason `PermissionError`, not `history-corrupt`; repair permissions and run again.
 - **`mutex-timeout` or `run-in-progress`.** Another engine process holds the run. Wait for it, or resume or abandon the run named in `run-open.json` once no process holds it.
 - **The skill is not listed after install.** Start a new Claude Code session or run `/reload-plugins`, then check `claude plugin list`.
-- **Something was written into the repository that you did not expect.** Inside the repository the engine writes only the report and `.claude/state/docaudit/`. The top-level `.mdq/` (mdq's index and usage record) is the only exception: since 1.0.1 the gate ignores it. Anything else came from another tool that ran during the audit; that is also what makes a run `REFUSED worktree-modified`.
+- **Something was written into the repository that you did not expect.** During an audit run, the only files the engine writes inside the repository are the report and the run state under `.claude/state/docaudit/`. The top-level `.mdq/` (mdq's index and usage record) is the only exception: since 1.0.1 the gate ignores it. Anything else came from another tool that ran during the audit; that is also what makes a run `REFUSED worktree-modified`.

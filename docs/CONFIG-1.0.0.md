@@ -2,8 +2,8 @@
 
 Configuration is the UTF-8 JSON file `.claude/docaudit.json`.  It contains
 `"docauditSchema": "1.0"`; key order is not significant. Unknown keys are rejected at every level. Paths
-and glob values are repository-relative and must not contain `..` or begin with
-an absolute path.
+and glob values are repository-relative and must not contain a `..` path
+segment (a parent-directory reference) or begin with an absolute path.
 
 | key | type | required | default |
 |---|---|---:|---|
@@ -268,12 +268,14 @@ Each valid journal line is a JSON object:
 {"seq":1,"ts":"2026-01-01T00:00:00Z","kind":"opened","data":{}}
 ```
 
-`seq` starts at one and is consecutive; `ts` is an ISO-8601 string; `kind` is
-a nonempty string; and `data`, when present, is an object. Unknown kinds are
-retained and ignored by readers.
+`seq` starts at one and is consecutive; `ts` is a nonempty string (the engine
+always writes ISO-8601); `kind` is a nonempty string; and `data`, when present,
+is an object. Unknown kinds are retained and ignored by readers.
 
-The engine writes these kinds: `opened`, `resumed`, `awaiting`, `interrupted`,
-`abandoned`, and `closed`.
+C-RUN writes these kinds directly for a run's lifecycle transitions (open,
+resume, transition, close, and abandon): `opened`, `resumed`, `awaiting`,
+`interrupted`, `abandoned`, and `closed`. See "Journal state machine" below
+for the full catalogue of kinds the engine writes.
 
 ## Engine run directory
 
@@ -313,7 +315,8 @@ The normal order is `opened`, `run-options`, `config-sealed`, `scoped`,
 `write-begin`, `write-end`, `reported`, `recorded`, and `closed`.
 `report-failed` replaces `reported` when publication fails.
 Auxiliary kinds are `resumed`, `interrupted`, `tmp-recovered`, `awaiting`,
-`request-issued`, `request-received`, and `abandoned`. The request events define
+`request-issued`, `request-received`, `abandoned`, `evidence-truncated`,
+`model-call-limit`, and `model-call-reserved`. The request events define
 the generation state of a Workflow request but do not complete an engine layer.
 A `layer-done` event records `layerId`, `evidenceSeq`, and the evidence SHA-256.
 `rendered` records the report SHA-256; `write-begin` records the report path plus
@@ -467,7 +470,9 @@ outcomes do publish a report. Report rendering shows the REFUSED reason and
 The gate refusal reason catalogue is `lock-lost`, `config-drift`, `seal-drift`,
 `evidence-tampered`, `layer-missing`, `layer-unexpected`,
 `producer-mismatch`, `backend-mismatch`, `worktree-modified`,
-`judgement-mismatch`, and `judgement-missing`. A recovery-detected pre-gate
+`judgement-mismatch`, `judgement-missing`, `adversarial-blocking`,
+`claim-inconsistent`, `claim-unknown`, `claim-duplicate`, `claim-missing`,
+and `claim-unadjudicated`. A recovery-detected pre-gate
 `seal-drift`, `verdict-conflict`, `request-drift`, or orphan evidence followed
 by a complete record (`evidence-tampered`), including one found on resume, is
 recorded in history as a REFUSED outcome and closed without publishing a report
@@ -684,9 +689,13 @@ With the mirror as its working directory, indexing runs `mdq index --root .
 --db ../index.sqlite --lang ja-jp`. Every `mdq` child receives only
 `PATH`, `HOME`, `LANG`, `LC_ALL`, and `TMPDIR` when present, plus
 `PYTHONUTF8=1`; it has a 120-second limit and process-group cleanup. Health
-requires `mdq stats --lang ja-jp` to report the sealed corpus file count and at
-least one chunk, and the first word of a heading from `mdq list --lang ja-jp`
-to produce at least one `mdq search --mode grep --top-k 1 --lang ja-jp` result.
+requires `mdq stats --db <index database> --lang ja-jp` to report the sealed
+corpus file count and at least one chunk, and the first word of a heading from
+`mdq list --db <index database> --lang ja-jp` to produce at least one `mdq
+search --db <index database> --q <word> --mode grep --top-k 1 --lang ja-jp`
+result, where `<index database>` is the absolute
+`docaudit-index-<runId>/index.sqlite` path (not the mirror-relative
+`../index.sqlite` literal that `index` passes).
 Index or health failure is fail-open: retrieval becomes `grep` with a specific
 reason. The engine's indexing never writes `.mdq/` into the repository.
 If an external mdq invocation writes to the repository's top-level `.mdq/`, the gate ignores it.
