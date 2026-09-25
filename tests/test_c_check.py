@@ -191,5 +191,20 @@ class CheckTests(unittest.TestCase):
             orphan_paths = {row["path"] for row in value.findings if row["id"].startswith("orphan:")}
             self.assertEqual(orphan_paths, {"docs/a.md", "docs/b.md"})
 
+    def test_orphan_check_excludes_self_links_from_referenced_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = ctx(root, corpus=("docs/lonely.md", "alone.md", "docs/hub.md", "docs/linked.md"),
+                document_checks={"frontMatterFields": [], "frontMatterOverrides": [],
+                    "indexFiles": [], "layerGlobs": {}})
+            (root / "docs/lonely.md").write_text(
+                "[a](lonely.md) [b](./lonely.md) [c](lonely.md#sec)\n", encoding="utf-8")
+            (root / "alone.md").write_text("[me](./alone.md)\n", encoding="utf-8")
+            (root / "docs/hub.md").write_text("[x](linked.md)\n", encoding="utf-8")
+            (root / "docs/linked.md").write_text("[me](linked.md)\n", encoding="utf-8")
+            value = c_check.adapter(context)
+            orphan_paths = {row["path"] for row in value.findings if row["id"].startswith("orphan:")}
+            self.assertEqual(orphan_paths, {"docs/lonely.md", "alone.md", "docs/hub.md"})
+
 
 if __name__ == "__main__": unittest.main()

@@ -200,7 +200,7 @@ def _builtin(ctx):
         for source in sources:
             for target in _targets(_read(root, source)):
                 resolved, outside = _resolve(source, target)
-                if resolved is not None and not outside:
+                if resolved is not None and not outside and resolved != source:
                     referenced.add(resolved)
         for path in docs:
             if (path not in set(cfg.get("indexFiles", ()))
