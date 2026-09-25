@@ -752,17 +752,17 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
 - `existence` checks only path-like backtick tokens outside code fences. A
   token is trimmed and cut at its first `#` or `?`; if what remains contains
   a shorthand marker (`*`, `{`, `}`, `...`, `…`) the token is skipped
-  silently. The engine then considers up to two bases: the whole token and,
-  when it contains a colon, the part before the first colon (an optional
-  line locator such as `:12`). A base counts only when it looks like a
-  repository path: it must contain a slash, not start with `//`, contain no
-  whitespace or shell separator, have no parent segment, and begin with an
-  existing top-level directory. Each counted base is tried as written and,
-  when it is percent-encoded and decoding introduces no control character
-  or parent segment, also in decoded form. A token none of whose bases
-  counts is ignored; a token is a non-blocking WARN only when at least one
-  base counted and none of the tried forms names an existing
-  repository-relative target.
+  silently. The engine then considers up to two bases: the whole remaining
+  token and, when it contains a colon, the part before the first colon (an
+  optional line locator such as `:12`). A base counts only when it looks
+  like a repository path: it must contain a slash, not start with `//`,
+  contain no space, tab, `|`, `<` or `>`, have no parent segment, and begin,
+  optionally after one leading `/`, with an existing top-level directory.
+  Each counted base is tried as written and, when it is percent-encoded and
+  decoding introduces no control character or parent segment, also in
+  decoded form. A token none of whose bases counts is ignored; a token is a
+  non-blocking WARN only when at least one base counted and none of the
+  tried forms names an existing repository-relative target.
 - `orphan` issues a non-blocking WARN when a corpus document has no direct
   one-hop link from another corpus document or an index file. One-document
   corpora record `orphan: skipped`.
