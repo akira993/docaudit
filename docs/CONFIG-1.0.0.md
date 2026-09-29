@@ -309,13 +309,14 @@ agy; they are filled independently (see "agy document adapter"). The engine adds
 two more keys to `capability.json` that are not probe fields: `backendSelection`,
 an object `{backend, fast}` holding the run's `--backend` value (`agy`, `codex`,
 `claude`, or null) and whether `--fast` was given, and `agyRepoBlock`, the reason
-the audited repository makes agy unusable, or null. A `capability.json` written
-by 1.1.5 has none of the agy fields, `backendSelection`, or `agyRepoBlock`; it is
-read as agy unavailable with no selection. The home paths and authentication
-bytes are never recorded. Resume and gate read `capability.json`; they do not
-probe again. Workflow runs additionally own
-deterministic request, completion, judgement, and receipt files below
-`requests/` in the same run directory.
+the audited repository makes agy unusable, or null. A `capability.json` whose
+`probeContractVersion` is `capability/1.1`, as the published 1.1.5 writes it,
+has none of the agy fields, `backendSelection`, or `agyRepoBlock`. The engine
+does not read the contract version; it reads the missing keys as agy unavailable
+with no selection. The home paths and authentication bytes are never recorded.
+Resume and gate read `capability.json`; they do not probe again. Workflow runs
+additionally own deterministic request, completion, judgement, and receipt files
+below `requests/` in the same run directory.
 
 ## Journal state machine
 
