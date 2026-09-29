@@ -2,7 +2,7 @@
 
 日本語版: [PROMPTS.ja.md](PROMPTS.ja.md)
 
-Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full`, `--accept-baseline` (only together with `--full`) and `--profile focused|standard|extended`. Everything the audit reports is read-only: docaudit never edits a document, so fixing what it finds is a separate step that you ask for explicitly.
+Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full`, `--accept-baseline` (only together with `--full`), `--profile focused|standard|extended`, `--backend agy|codex|claude` and `--fast` (only together with `--backend codex`). Everything the audit reports is read-only: docaudit never edits a document, so fixing what it finds is a separate step that you ask for explicitly.
 
 Engine commands below use the skills-dir path `~/.claude/skills/docaudit/skills/audit/engine`; with a marketplace install, substitute the engine path from the README's install section.
 
@@ -14,7 +14,7 @@ Use after the configuration exists (see [ADOPTION.md](ADOPTION.md), section 4).
 Run /docaudit:audit --full in this repository. When it finishes, open the published report and list every document it marked as failing with its summary; then, for each of them, show the evidence strings of its judgement from the run's evidence ledger under .claude/state/docaudit/runs/<runId>/ (for runs verified through Claude Code agents they are also in requests/<seq>/judgements/). Do not edit any document.
 ```
 
-Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no backend at all, which happens outside Claude Code without a working Codex CLI. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
+Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no usable backend (or the one you named with `--backend` cannot be used), which happens outside Claude Code without a working Codex CLI or a set-up agy. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
 
 ## 2. Fix what the first audit found, then repeat
 
@@ -48,7 +48,7 @@ Requires the Codex CLI to pass the availability check and `enabledLayers` to lis
 Run /docaudit:audit --profile extended --full. Report the verdict, then list the adversarial and security findings by severity, and for each confirmed claim show the evidence file and line.
 ```
 
-Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided workflow-adapter-unavailable`, the verification went through Claude Code agents instead of Codex, which cannot run the review layers.
+Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and the review layers run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
 
 ## 6. Migrate a legacy configuration
 
@@ -84,10 +84,10 @@ Expected: the run reaches `closed`, and the next audit can start. Abandoning rec
 
 ## 9. Scheduled or non-interactive runs
 
-Outside Claude Code the engine needs the Codex backend. From a shell or a scheduler:
+Outside Claude Code the engine needs the Codex backend or a set-up agy (see [ADOPTION.md](ADOPTION.md), section 7). Name the backend so that the choice does not depend on what is installed: without `--backend` the engine takes the first usable of Codex and agy. From a shell or a scheduler:
 
 ```sh
-python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --repo-root /path/to/repo
+python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
 Read the last line of the output as JSON: `outcome` and `reportPath`. Exit status 0 covers `CONSISTENT`, `NEEDS_FIX`, `undecided`, and `REFUSED`; use `outcome` to decide, not the exit status. Exit status 3 means the engine refused to open a run and `reason` says why.
@@ -95,7 +95,7 @@ Read the last line of the output as JSON: `outcome` and `reportPath`. Exit statu
 To run the skill itself non-interactively, use Claude Code in print mode from the repository:
 
 ```sh
-claude -p '/docaudit:audit' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
+claude -p '/docaudit:audit --backend codex' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
 ```
 
-Expected: the same outcomes as an interactive run. The session must be allowed to run the workflow and its agents, which is what the tool list above grants.
+Expected: the same outcomes as an interactive run. The session must be allowed to run the workflow and its agents, which is what the tool list above grants. Keep `--backend codex` (or name another backend) in print mode: nobody can answer the backend question there, and depending on how the question ends the skill takes either the engine's default order or the first choice, which is agy when agy is usable.

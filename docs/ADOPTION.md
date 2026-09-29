@@ -16,6 +16,8 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 
 Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
 
+Before updating to this version, close every run that an earlier version left open (a `.claude/state/docaudit/run-open.json` exists) with the earlier version's engine: resume it to the end, or run `resume <runId> --abandon`. A run left open and resumed by this version ends `REFUSED backend-mismatch`.
+
 ## 2. Mental model
 
 docaudit compares Markdown documents with the code and configuration they describe and reports the documents that no longer match. It never edits a document: every run is report-only, and the only files it writes inside the repository are the report and the run state under `.claude/state/docaudit/`.
@@ -28,7 +30,7 @@ Five ideas explain everything else:
 - **Layers and profiles.** A run executes layers. `L-SCOPE` computes the impacted set, `L-DOC` verifies each impacted document, `L-PROJECT` runs the built-in document checks and your `projectChecks`; `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` add review layers. A profile (`focused`, `standard`, `extended`) selects which layers run; `enabledLayers` in the configuration declares which layers the repository allows.
 - **Verdict and anchor.** A verdict is `CONSISTENT` or `NEEDS_FIX`. A `CONSISTENT` run advances the profile's anchor, and a full `NEEDS_FIX` run accepted with `--accept-baseline` advances it the same way; the next incremental run measures changes from that anchor either way. A run that cannot reach a verdict ends `undecided` with a reason, and a run whose sealed run contract fails the gate's integrity checks ends `REFUSED`.
 
-Document verification is performed by a backend. When the Codex CLI passes the engine's availability check it is used; otherwise, inside Claude Code, the skill hands the verification to Claude Code agents through a workflow and resumes the engine when they finish.
+Document verification is performed by a backend. Three exist: the Codex CLI, the agy CLI, and Claude Code agents. A non-interactive start takes the first usable one in the order Codex, agy, Claude Code agents; when the skill starts the audit and two or more are usable, it asks which to use (section 7). The choice is sealed into the run, and a resume uses the same backend. With Claude Code agents, the skill hands the verification to them through a workflow and resumes the engine when they finish.
 
 ## 3. Prerequisites
 
@@ -37,7 +39,8 @@ Document verification is performed by a backend. When the Codex CLI passes the e
 | macOS or Linux | `projectChecks` run only on macOS (they use `sandbox-exec`). |
 | Claude Code and git | The skill runs inside Claude Code; git supplies the diff and the snapshot. |
 | Python 3.12 or newer | The engine uses only the standard library. |
-| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). Required in practice for the `extended` profile (section 8). |
+| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). The Codex account must be able to use the model `gpt-6-luna` (section 7). The review layers of the `extended` profile always run on Codex (section 8). |
+| agy CLI (optional) | Used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file (section 7, "The agy backend"). |
 | Node.js (optional) | Only for running the repository's own test suite. |
 
 A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the report path and the state directory are created on the first run.
@@ -100,13 +103,102 @@ Inside Claude Code, in the repository:
 /docaudit:audit --profile focused     # choose the profile; the default is standard
 ```
 
-The skill runs the engine, and when the engine hands verification to Claude Code agents (`nextAction: invoke-workflow`) it launches the verification workflow and resumes the engine, up to three times, then abandons the run. At the end it shows the outcome, the reason, and the report path.
+The skill starts the engine with `--ask-backend` (see "Choose the backend" below). It runs the engine, and when the engine hands verification to Claude Code agents (`nextAction: invoke-workflow`) it launches the verification workflow and resumes the engine, up to three times, then abandons the run. At the end it shows the outcome, the reason, and the report path.
 
-Outside Claude Code the same run is a command; it needs the Codex backend because no agents are available:
+Outside Claude Code the same run is a command; it needs the Codex backend or a set-up agy because no Claude Code agents are available (add `--backend agy` or `--backend codex` to choose):
 
 ```sh
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
 ```
+
+### Choose the backend
+
+Three backends can verify documents: the Codex CLI, the agy CLI, and Claude Code agents (only inside Claude Code).
+
+- `--backend agy|codex|claude` names the backend. `--fast`, allowed only together with `--backend codex`, adds Codex's priority service tier. A `--backend` value other than those three is refused with `backend-invalid`, and `--fast` without `--backend codex` with `fast-requires-codex`; both refusals happen before a run is opened (exit status 3). A named backend that cannot be used ends the run `undecided backend-unavailable`.
+- The skill always starts the engine with `--ask-backend`. If you gave no `--backend` and at least two backends are usable, the engine opens no run: it prints `nextAction: choose-backend` with `runId: null` and a `choices` array, and exits with status 0. `choices` lists only the usable backends, in this order: agy (`{"backend":"agy","fast":false}`), Codex, Codex with `"fast":true`, Claude Code agents (`{"backend":"claude","fast":false}`). The skill asks you to pick one (the first is the recommendation) and starts the engine again with `--backend`, plus `--fast` when `fast` is true. If the question is closed without an answer the first choice is used; if it cannot be asked, the skill starts the engine without `--backend`, which gives the default below.
+- Without `--backend` and without `--ask-backend` (a plain command, or the last case above) the engine takes the first usable backend in the order Codex, agy, Claude Code agents. An environment with a usable agy but no working Codex therefore changes its main backend from Claude Code agents to agy; pass `--backend claude` to keep Claude Code agents.
+- The choice is written into the run (`backendSelection` in the `run-options` record and in `capability.json`), so `resume` uses the same backend and the same Fast setting.
+
+The Codex backend runs the model `gpt-6-luna` at reasoning effort `xhigh`, and Fast adds `-c service_tier=priority`. One call is limited to 900 seconds; each document gets up to three attempts, with four calls in flight. If the Codex account cannot use `gpt-6-luna`, the calls fail, no document gets a judgement, and the run ends `undecided backend-failed`. docaudit does not switch to another backend by itself; choose one with `--backend`.
+
+### The agy backend
+
+agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`. It is used only when every condition below holds. When one fails, agy is left out of `choices` and of the default order without a message; the reason is recorded in the run's `capability.json` (`agyReason` for the home and the tool, `agyRepoBlock` for the repository).
+
+**Set up a dedicated home.**
+
+1. Create an empty directory and point `AGY_HOME` at it in the environment the engine runs in, for example `mkdir "$HOME/.agy-docaudit"` and `export AGY_HOME="$HOME/.agy-docaudit"`. `AGY_HOME` is required: if it is unset, or is not an existing directory, agy is not used (create the directory first, because agy itself would create a missing home). docaudit starts every agy process with `HOME` replaced by `AGY_HOME` and with only `PATH`, `LANG`, `LC_ALL`, `TMPDIR` and `AGY_CLI_DISABLE_AUTO_UPDATE=true` besides, so your everyday agy login, settings and plugins are not used.
+2. Sign in inside that home: start agy with `HOME="$AGY_HOME" agy`, sign in when it asks, and quit. docaudit does not sign in for you; it checks that `.gemini/antigravity-cli/antigravity-oauth-token` exists in `AGY_HOME` and is readable.
+3. Install the tool guard. agy's web search is not stopped by permission settings, so docaudit requires a hook that denies every tool except the five that read and search files (`view_file`, `list_dir`, `find_by_name`, `grep_search`, `finish`). Run `mkdir -p "$AGY_HOME/.gemini/config"`, then create `.gemini/config/hooks.json` in `AGY_HOME` with exactly this content:
+
+```json
+{
+  "docaudit-deny-tools": {
+    "PreToolUse": [
+      {
+        "matcher": "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"decision\":\"deny\",\"reason\":\"docaudit: this tool is disabled while judging documents\"}'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+   The engine reads the file as JSON and compares it with this document: key order and whitespace do not matter, but any changed, missing or extra key or value makes agy unusable.
+4. Keep permissions out of the home. `.gemini/antigravity-cli/settings.json` in `AGY_HOME` may be absent, but if it exists it must not have a non-empty `permissions.allow` or a `hooks` key. This includes grants you added there temporarily for another purpose.
+
+**When agy is not used.** The startup check tests the following in this order and records the first that applies as `agyReason`; only the reason is recorded, never the contents of a file. agy itself is started only by the last checks (`agy --version` and `agy models`).
+
+| reason | agy is not used because |
+|---|---|
+| `agy-home-unset` | `AGY_HOME` is not set or is empty |
+| `agy-home-missing` | `AGY_HOME` is not an existing directory |
+| `agy-not-installed` | no executable `agy` was found on `PATH` |
+| `agy-settings-unreadable` | `settings.json` exists but cannot be read, is not a JSON object, or has a `permissions` that is not an object |
+| `agy-permissions-present` | `settings.json` has a non-empty `permissions.allow` |
+| `agy-settings-hooks-present` | `settings.json` has a `hooks` key |
+| `agy-tool-hook-missing` | `.gemini/config/hooks.json` does not exist |
+| `agy-tool-hook-mismatch` | `.gemini/config/hooks.json` cannot be read, is not JSON, or differs from the document above |
+| `agy-login-missing` | the login token file is missing or not readable |
+| `agy-tmp-unavailable` | no private temporary directory could be created |
+| `agy-version-failed` | `agy --version` failed or took longer than 20 seconds |
+| `agy-models-timeout` | `agy models` took longer than 30 seconds |
+| `agy-models-failed` | `agy models` failed or its output could not be read |
+| `agy-model-missing` | `gemini-3.8-flash-medium` is not in the output of `agy models` |
+
+The audited repository is checked as well, and it is recorded as `agyRepoBlock`: `agy-repo-settings-present` when the repository has a `.gemini/antigravity-cli` entry (whatever it contains; checked first), and `agy-workspace-customizations` when it has a top-level `.agents` entry. Workspace settings and hooks can run commands from the repository's own content and can allow tools, so agy is not used on such a repository.
+
+**What the agy backend cannot do.**
+
+- agy is run without the ability to run shell commands (a command request is refused and makes the whole judgement fail), so the judge prompt for agy leaves out the checks that need git (`git ls-files`, `git check-ignore`). Under agy docaudit cannot tell tracked files from ignored ones; the nested-checkout rule (a copy found only under a directory that has its own `.git` file or directory is another checkout, not evidence) is decided by the presence of that `.git` entry alone.
+- Every agy launch writes a conversation and logs into `AGY_HOME`, so the directory grows over time.
+- docaudit does not inspect the plugins installed in the agy home; a plugin can carry hooks of its own.
+- One call is limited to 15 minutes by agy (`--print-timeout 15m`), and the engine stops waiting after 960 seconds. Two calls run at a time, and each document gets up to three attempts.
+
+A tool that the guard hook denies is not a failure: the tool does not run and agy carries on. A document that fails every attempt gets no judgement and the run ends `undecided backend-failed`. The last attempt's reason is kept in the document's `failure` record, and every attempt's reason in its `model-call` record:
+
+| reason | meaning |
+|---|---|
+| `agy-home-unset`, `agy-home-missing` | `AGY_HOME` is unset or not a directory when the judgement starts |
+| `agy-prompt-invalid` | docaudit's own rewrite of the judge prompt for agy failed its check, so agy was not started (all three attempts fail the same way) |
+| `launch-failed` | agy could not be started |
+| `cancelled` | the attempt was stopped because the run was stopping |
+| `timeout` | agy did not finish within 960 seconds |
+| `exit-<n>` | agy exited with status `n`, for example when it is not signed in |
+| `output-too-large` | the output was larger than 2 MiB |
+| `output-not-json` | the output was not a JSON object |
+| `agy-status` | the reported status was not `SUCCESS` |
+| `agy-denied` | agy reported a denied action, even though it returned an answer |
+| `structured-output-missing` | there was no structured answer; the 15 minute limit ends here too |
+| `output-type-mismatch`, `output-schema-mismatch`, `identity-mismatch` | the answer did not match the judgement schema, or did not echo the run and document it was asked about |
+| `tmp-unavailable` | no private temporary directory could be created |
 
 ### The anchor lifecycle
 
@@ -130,11 +222,11 @@ The skill does not recover a run left over from an earlier session; do it by han
 
 | profile | layers | backend |
 |---|---|---|
-| `focused` | `L-SCOPE`, `L-DOC` | Codex when available, otherwise Claude Code agents |
+| `focused` | `L-SCOPE`, `L-DOC` | the backend chosen or defaulted in section 7 |
 | `standard` (default) | focused + `L-PROJECT` | same |
-| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection, but a verdict requires Codex |
+| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection for the documents, but the four review layers always run on Codex |
 
-`extended` can be selected only when `enabledLayers` lists all seven layers; otherwise the engine refuses to open the run with `capability-missing:<layer>` (exit status 3). Through Claude Code agents `L-CLAIM` is incomplete (`workflow-adapter-unavailable`) and the run ends `undecided`; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls. Use `extended` where the Codex CLI passes the availability check.
+`extended` can be selected only when `enabledLayers` lists all seven layers; otherwise the engine refuses to open the run with `capability-missing:<layer>` (exit status 3). The review layers run on Codex whichever backend verifies the documents (with Fast, if you chose it), so they need a Codex that passes the availability check. Without one, `L-CLAIM` is incomplete and the run ends `undecided`: with reason `codex-unavailable` when the documents are verified through agy, and `workflow-adapter-unavailable` when they are verified through Claude Code agents. With impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls. Use `extended` where the Codex CLI passes the availability check.
 
 In `extended`, the adversarial layer asks for evidence-backed contradictions per impacted document, the security layer reviews documented procedures, configuration, secret handling, and permissions once per run, and the claim layer re-checks every adversarial `FAIL` against the repository. Of the findings from these four layers, only a confirmed claim can make the verdict `NEEDS_FIX`; adversarial and security findings are informational. A document `FAIL` makes the verdict `NEEDS_FIX` in every profile, and a project-check `FAIL` does so in the profiles that run `L-PROJECT` (`standard` and `extended`).
 
@@ -146,7 +238,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 
 ## 10. Read the results
 
-- **The result line.** The last line of the engine output is one JSON object. A closed run has `nextAction` (`done` or `abort`), `runId`, `outcome`, and when present `reason` and `reportPath`; a hand-off to the workflow has `nextAction: invoke-workflow` with `requestSeq` and `requestPath` instead of an outcome. Exit status 0 means the engine finished normally, including `undecided`, `REFUSED`, and the hand-off; 3 means it refused to open a run (configuration, profile, or run-state problem, named in `reason`); 4 means an opened run could not proceed.
+- **The result line.** The last line of the engine output is one JSON object. A closed run has `nextAction` (`done` or `abort`), `runId`, `outcome`, and when present `reason` and `reportPath`; a hand-off to the workflow has `nextAction: invoke-workflow` with `requestSeq` and `requestPath` instead of an outcome; a backend question has `nextAction: choose-backend`, `runId` null, and `choices`, and no run is opened. Exit status 0 means the engine finished normally, including `undecided`, `REFUSED`, the hand-off, and the backend question; 3 means it refused to open a run (configuration, profile, or run-state problem, named in `reason`); 4 means an opened run could not proceed.
 - **The report.** Published at `report.path` with fixed front matter and sections for the run, the audited documents, the findings, the verdict, the anchor, the measurements, and the evidence. Most of its headings and fixed phrases are Japanese. It has one line per finding: each document with its verdict and a one-line summary of the mismatch, and each other finding with its severity and summary, including project checks, links, and claims; the evidence strings behind a judgement (the Codex backend is asked to cite `file:line` in its rationale; Claude Code agents are asked for repository-relative evidence) are kept in the run's evidence ledger, in the `judgement` lines of the history, and, for runs verified through Claude Code agents, in `runs/<runId>/requests/<seq>/judgements/`. Unsafe summary text is redacted and counted as `- redacted: N`; history `judgement` lines use the same redact rule, while the ledger and `requests/<seq>/judgements/` remain original. Runs that end `undecided` before verification starts publish no report.
 - **The state directory.** `.claude/state/docaudit/history.jsonl` records one line per run outcome and per judgement (plus `flip`, `anchor`, `legacy`, and `migration` lines), `anchors/<profile>.json` holds the current anchor, and `runs/<runId>/` holds the sealed manifest, the evidence ledger with the adapter results and judgements, and `verdict.json`. Decide once whether to commit the state directory (auditable history in version control) or ignore it (local state per clone); the engine works either way.
 
@@ -158,11 +250,13 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 | `NEEDS_FIX` | at least one document fails, or a blocking finding (a broken link, a failed project check, a confirmed claim) | fix what the report names, run again |
 | `NEEDS_FIX` (`--full --accept-baseline` accepted) | failures are document judgements only | the anchor advanced; known FAIL documents are rechecked when they change |
 | `undecided anchor-missing` | incremental run without an anchor | run with `--full` |
-| `undecided backend-unavailable` | capability detection found no usable backend: no Codex, and not inside Claude Code | install or fix Codex, or run inside Claude Code |
+| `undecided backend-unavailable` | capability detection found no usable backend: no Codex, no usable agy, and not inside Claude Code; or the backend named with `--backend` cannot be used | install or fix Codex, set up agy (section 7), or run inside Claude Code |
+| `undecided backend-failed` | at least one document failed every attempt (for example agy not signed in, or a Codex account that cannot use `gpt-6-luna`) | see the reason in the document's `failure` record and `model-call` records, or choose another backend |
 | `undecided impact-limit` | more impacted documents than `impact.maxImpactedDocs` | narrow the map or raise the limit, or run `--full` |
 | `undecided corpus-unreadable` | a document in the corpus could not be read while the verification mirror was prepared (Claude Code agent backend) | make the file readable (permissions, broken symlink) and run again |
 | `undecided sandbox-unavailable` | `projectChecks` configured on a platform without `sandbox-exec` | empty `projectChecks` on Linux |
-| `undecided workflow-adapter-unavailable` | `extended` through Claude Code agents | use the Codex backend |
+| `undecided workflow-adapter-unavailable` | `extended` with the documents verified through Claude Code agents and no usable Codex | make Codex usable |
+| `undecided codex-unavailable` | `extended` with the documents verified through agy and no usable Codex | make Codex usable |
 | `undecided abandoned` | the run was abandoned | run again |
 | `REFUSED worktree-modified` | the working tree changed during the run | do not edit or generate files while a run is open; run again |
 | `REFUSED config-drift` | `.claude/docaudit.json` changed during the run | run again |

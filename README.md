@@ -9,12 +9,16 @@ A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it
 ## Requirements
 
 - macOS or Linux.
-- git. Claude Code is needed only to run docaudit as its plugin skill; outside Claude Code the engine runs as a command and needs the Codex CLI.
+- git. Claude Code is needed only to run docaudit as its plugin skill; outside Claude Code the engine runs as a command and needs the Codex CLI or the agy CLI (see below).
 - Python 3.12 or newer. The engine uses only the standard library.
-- Optional: the Codex CLI. When the engine's availability check passes (`codex` on `PATH`, a working `codex --version` and `codex exec --help`, and an `auth.json` in the Codex home that is a readable regular file, not a symlink or other non-regular file) it sends document verification to Codex; otherwise, inside Claude Code, the skill runs the verification through Claude Code agents.
+- Optional: the Codex CLI. When the engine's availability check passes (`codex` on `PATH`, a working `codex --version` and `codex exec --help`, and an `auth.json` in the Codex home that is a readable regular file, not a symlink or other non-regular file) it can send document verification to Codex, which runs the model `gpt-6-luna` at reasoning effort `xhigh`. If the account cannot use that model, no document gets a judgement and the run ends `undecided`.
+- Optional: the agy CLI. It is used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file that [docs/ADOPTION.md](docs/ADOPTION.md) (section 7) gives verbatim. That section also lists every condition under which agy is not used.
+- Backends: document verification runs on Codex, agy, or Claude Code agents (only inside Claude Code). When the skill starts an audit and two or more are usable it asks which to use. Without a choice (a plain command, or a question that cannot be asked) the engine takes the first usable one in the order Codex, agy, Claude Code agents, so an environment with agy but without Codex uses agy where it used Claude Code agents before; `--backend claude` keeps Claude Code agents. `--backend agy|codex|claude` sets the choice explicitly.
 - Node.js is needed only to run the repository's own test suite.
 
 ## Install
+
+Before updating from an earlier version, close every run that version left open (a `.claude/state/docaudit/run-open.json` exists) with the earlier version's engine, by resuming it to the end or with `resume <runId> --abandon`; a run left open and resumed by this version ends `REFUSED backend-mismatch`.
 
 The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.1.5`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
@@ -80,7 +84,10 @@ In Claude Code, inside the repository:
 /docaudit:audit --full --accept-baseline # accept a document-only NEEDS_FIX baseline
 /docaudit:audit                   # later runs: only the documents impacted by changes since the last accepted run
 /docaudit:audit --profile focused # choose a profile (focused, standard, extended); each profile starts with its own --full run
+/docaudit:audit --backend codex   # choose who verifies the documents (agy, codex or claude); --fast is allowed only with codex
 ```
+
+When two or more backends are usable and you gave no `--backend`, the skill asks which to use (the first choice, agy when it is usable, is the recommendation; a question closed without an answer takes it). If the question cannot be asked, the engine's default order applies. `--fast` asks Codex for its priority service tier and is refused with `fast-requires-codex` unless `--backend codex` is also given; an unknown `--backend` value is refused with `backend-invalid`. The choice is sealed into the run, so a resumed run uses the same backend.
 
 Anchors are kept per profile. The first anchor is written after `CONSISTENT`, or after `--full --accept-baseline` ends `NEEDS_FIX` with only L-DOC blocking judgements. Later `CONSISTENT` runs also advance the anchor, and incremental runs measure from it. A known FAIL document is not rechecked after acceptance only when it is not impacted by `impact.map`, `ssotSources`, or heuristics and `changes.regressionRecheck` is disabled. `changes.regressionRecheck: true` rechecks current failed documents; they count toward `impact.maxImpactedDocs`, stop with `impact-limit` when exceeded, and do not shrink until they pass. Non-document blocking findings are not accepted; find and fix their causes in the report findings first. This path is available in 1.1.0 and later.
 
@@ -90,9 +97,9 @@ Profiles decide which layers run:
 |---|---|---|
 | `focused` | scope, document verification | quick check of the impacted documents |
 | `standard` (default) | focused + project checks | the everyday audit |
-| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex backend: through Claude Code agents `L-CLAIM` is incomplete (`workflow-adapter-unavailable`) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
+| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex CLI: the four review layers always run on Codex, whichever backend verifies the documents. Without a usable Codex, `L-CLAIM` is incomplete (`codex-unavailable`, or `workflow-adapter-unavailable` when the documents are verified through Claude Code agents) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
 
-Outside Claude Code, with the Codex CLI available, the same audit runs as a command:
+Outside Claude Code, with the Codex CLI or a set-up agy available, the same audit runs as a command (add `--backend agy` or `--backend codex` to choose; without it the first usable of Codex and agy is taken):
 
 ```sh
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
@@ -100,15 +107,15 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 
 ## What you get
 
-- The result, printed as the last line of output as one JSON object: `nextAction` (`done`, `abort`, or `invoke-workflow` while the skill hands verification to Claude Code agents), `outcome`, `reason` when there is one, and `reportPath` when a report was published.
+- The result, printed as the last line of output as one JSON object: `nextAction` (`done`, `abort`, `invoke-workflow` while the skill hands verification to Claude Code agents, or `choose-backend` when a backend question is needed before a run is opened), `outcome`, `reason` when there is one, `reportPath` when a report was published, and `choices` (the usable backends) with `choose-backend`.
 - The report at `report.path`: the verdict, the audited documents, and one line per finding: each document with its verdict and a one-line summary of the mismatch, and each other finding with its severity and summary, including project checks, links, and claims. Unsafe summary text is redacted and reported as `- redacted: N`; history judgement lines are redacted too, while the evidence ledger and agent judgement files under `runs/<runId>/` remain original. Most of the report's headings and fixed phrases are Japanese. Runs that end `undecided` before verification starts publish no report.
 - Run state under `.claude/state/docaudit/`: `history.jsonl` (one line per run and per judgement), and one directory per run holding the sealed manifest, the evidence ledger, the per-document judgements and the final verdict. Add the state directory to version control or ignore it as you prefer. Inside the repository the audit writes only there and to the report path; scratch files go to a private temporary directory outside the repository, and `migrate` writes the converted configuration.
-- Exit status 0 when the engine finished normally (a verdict, an `undecided` or `REFUSED` outcome, or a hand-off to Claude Code agents), 3 when it refused to open a run (the JSON `reason` says why), 4 when an opened run could not proceed.
+- Exit status 0 when the engine finished normally (a verdict, an `undecided` or `REFUSED` outcome, a hand-off to Claude Code agents, or the `choose-backend` question), 3 when it refused to open a run (the JSON `reason` says why), 4 when an opened run could not proceed.
 
 ## Layout
 
 - `skills/audit/` — the audit skill and the engine (`skills/audit/engine`); the skill's instruction file (`SKILL.md`) is written in Japanese; the engine's JSON output is language-neutral
-- `agents/`, `workflows/` — the Claude Code agent and workflow used when Codex is not available
+- `agents/`, `workflows/` — the Claude Code agent and workflow used when the documents are verified through Claude Code agents
 - `docs/` — the configuration reference, and the adoption guide and prompt examples in English and Japanese
 - `tests/` — unit and acceptance tests
 

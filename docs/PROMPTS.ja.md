@@ -2,7 +2,7 @@
 
 English: [PROMPTS.md](PROMPTS.md)
 
-Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。skill は `/docaudit:audit`、オプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended` です。監査の報告はすべて読み取り専用で、docaudit が文書を編集することはありません。見つかった問題を直すのは別の作業で、明示的に依頼します。
+Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。skill は `/docaudit:audit`、オプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended`、`--backend agy|codex|claude`、`--fast`（`--backend codex` と併用する場合だけ）です。監査の報告はすべて読み取り専用で、docaudit が文書を編集することはありません。見つかった問題を直すのは別の作業で、明示的に依頼します。
 
 以下の engine コマンドは skills-dir の path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は README の install 節にある engine path に読み替えてください。
 
@@ -14,7 +14,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 このリポジトリで /docaudit:audit --full を実行して。終わったら公開された report を開き、失敗と判定された文書を要約と一緒に列挙して。その後、それぞれについて .claude/state/docaudit/runs/<runId>/ の証拠台帳にある judgement の証拠文字列を見せて（Claude Code の agent で検証した run では requests/<seq>/judgements/ にもある）。文書は編集しないで。
 ```
 
-期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で backend がひとつも見つからなかったという意味で、Claude Code の外で Codex CLI が使えないときに起きます。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
+期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で使える backend がひとつも見つからなかった（または `--backend` で指名した backend を使えない）という意味で、Claude Code の外で Codex CLI も設定済みの agy も使えないときに起きます。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
 
 ## 2. 最初の監査の指摘を直して、もう一度
 
@@ -48,7 +48,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided workflow-adapter-unavailable` で終わったら、検証が Codex ではなく Claude Code の agent を経由したということで、agent はレビュー層を実行できません。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、レビュー層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 
@@ -84,10 +84,10 @@ skill は前の session から残った run を回復しないので、明示的
 
 ## 9. 定期実行・非対話での実行
 
-Claude Code の外では engine に Codex backend が必要です。shell やスケジューラから:
+Claude Code の外では engine に Codex backend か、設定済みの agy が必要です（[ADOPTION.ja.md](ADOPTION.ja.md) の第 7 節）。何が install されているかに選択が左右されないよう backend を明示します。`--backend` を付けないと、engine は Codex と agy のうち最初に使えるものを取ります。shell やスケジューラから:
 
 ```sh
-python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --repo-root /path/to/repo
+python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
 出力の最終行を JSON として読み、`outcome` と `reportPath` を使います。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。
@@ -95,7 +95,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard -
 skill 自体を非対話で動かすには、リポジトリで Claude Code を print mode で使います。
 
 ```sh
-claude -p '/docaudit:audit' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
+claude -p '/docaudit:audit --backend codex' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
 ```
 
-期待: 対話実行と同じ outcome。session が workflow とその agent を実行できる必要があり、上のツール一覧がそれを許可します。
+期待: 対話実行と同じ outcome。session が workflow とその agent を実行できる必要があり、上のツール一覧がそれを許可します。print mode でも `--backend codex`（または別の backend の指名）を残してください。そこでは backend の質問に答える人がおらず、質問の終わり方によって skill は engine の既定の順か先頭の選択肢を取り、先頭は agy が使えるときは agy になります。

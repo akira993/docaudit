@@ -299,11 +299,21 @@ owns these files:
 | `tree.before.json` | persisted pre-dispatch worktree snapshot for Workflow runs |
 
 The capability probe is performed once before seal. Its contract version is
-`capability/1.1` and its eleven fields are `available`, `reason`, `cliVersion`,
+`capability/1.2` and its seventeen fields are `available`, `reason`, `cliVersion`,
 `executableHash`, `homeOrigin`, `homePathHash`, `authPresent`, `authReadable`,
-`probeContractVersion`, `workflowAvailable`, and `workflowReason`. The home
-path and authentication bytes are never recorded. Resume and gate read
-`capability.json`; they do not probe again. Workflow runs additionally own
+`probeContractVersion`, `workflowAvailable`, `workflowReason`, and the six agy
+fields `agyAvailable`, `agyReason`, `agyCliVersion`, `agyExecutableHash`,
+`agyHomeOrigin` (`env` when `AGY_HOME` is set, otherwise null), and
+`agyModelAvailable`. The Codex fields describe Codex and the agy fields describe
+agy; they are filled independently (see "agy document adapter"). The engine adds
+two more keys to `capability.json` that are not probe fields: `backendSelection`,
+an object `{backend, fast}` holding the run's `--backend` value (`agy`, `codex`,
+`claude`, or null) and whether `--fast` was given, and `agyRepoBlock`, the reason
+the audited repository makes agy unusable, or null. A `capability.json` written
+by 1.1.5 has none of the agy fields, `backendSelection`, or `agyRepoBlock`; it is
+read as agy unavailable with no selection. The home paths and authentication
+bytes are never recorded. Resume and gate read `capability.json`; they do not
+probe again. Workflow runs additionally own
 deterministic request, completion, judgement, and receipt files below
 `requests/` in the same run directory.
 
@@ -321,7 +331,9 @@ the generation state of a Workflow request but do not complete an engine layer.
 A `layer-done` event records `layerId`, `evidenceSeq`, and the evidence SHA-256.
 `rendered` records the report SHA-256; `write-begin` records the report path plus
 the temporary file's device and inode; `reported` records the publication
-receipt.
+receipt. `run-options` records `mode`, `requestedProfile`, `acceptBaseline`, and
+`backendSelection` (`{backend, fast}`, as in `capability.json`); a resume that
+has to probe again reads the selection from it.
 
 A stage is complete only when its completion event has been appended. The
 completion events are `config-sealed`, `scoped`, `planned`,
@@ -442,7 +454,10 @@ Gate applies these checks in order:
    a report and `verdict.json`;
 5. layer-set mismatch gives `REFUSED layer-missing` or `layer-unexpected`, and
    an adapter identity mismatch gives `REFUSED producer-mismatch`;
-6. a resolved backend mismatch gives `REFUSED backend-mismatch`;
+6. a resolved backend mismatch gives `REFUSED backend-mismatch`; the gate
+   resolves the backend again from the sealed `capability.json`, which carries
+   `backendSelection` and `agyRepoBlock`, and compares it with the manifest's
+   `resolvedBackendModel`, so a selected backend resolves as it did at seal time;
 7. a worktree digest mismatch gives `REFUSED worktree-modified` and lists the
    differing paths;
 8. an out-of-scope, duplicate, stale-content, or invalid document judgement
@@ -490,10 +505,13 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 ```
 
 `reason` and `reportPath` are omitted when not applicable. Exit status 0 means
-the engine finished normally: the run reached `closed`, or it handed the run
-to the Workflow backend while the run remains open (see below). Status 3 means refusal before opening a run; its
+the engine finished normally: the run reached `closed`, it handed the run
+to the Workflow backend while the run remains open, or it asked for a backend
+choice without opening a run (see below). Status 3 means refusal before opening a run; its
 `nextAction` is `abort`, `runId` and `outcome` are null, and `reason` identifies
-the refusal. Status 4 is reserved for a run that was opened but cannot proceed
+the refusal (`backend-invalid` for a `--backend` value other than `agy`,
+`codex`, or `claude`, and `fast-requires-codex` for `--fast` without
+`--backend codex`, are among them). Status 4 is reserved for a run that was opened but cannot proceed
 or record an outcome, such as an operating-system error or rejected write; it
 does not reach `closed` and prints an `abort` result. Recovery-detected
 integrity failures are recorded in history and closed with status 0. Resume
@@ -527,15 +545,36 @@ process remains attached after the handoff. Resume acquires the lease,
 transitions through `running`, and either continues the layer or returns to the
 awaiting state.
 
+With `--ask-backend`, no `--backend`, and at least two usable backends, the
+engine opens no run, exits with status 0, and prints the backend question:
+
+```json
+{"nextAction":"choose-backend","runId":null,"outcome":null,"choices":[{"backend":"agy","fast":false},{"backend":"codex","fast":false},{"backend":"codex","fast":true},{"backend":"claude","fast":false}]}
+```
+
+`choices` lists only the usable backends, in the order agy, Codex, Codex with
+Fast, Claude Code agents (`claude`). A backend is usable under the same
+conditions as in the resolution described next, including `agyRepoBlock` for
+agy. Without `--backend`
+and `--ask-backend`, or with only one usable backend, the engine takes the
+first usable backend in the order Codex (`codex:gpt-6-luna`), agy
+(`agy:gemini-3.8-flash-medium`), Claude Code agents (`workflow:sonnet`). With
+`--backend`, only the named backend is considered, and one that is not usable
+gives `undecided backend-unavailable`.
+
 ## Codex document adapter
 
 For `codex:<model>`, L-DOC checks impacted documents in path order with at most
 three attempts per document and four concurrent calls. Constants are a 2 MiB
-output limit, 600 second document timeout, five second termination grace, and
-`medium` reasoning effort. The default model is `gpt-5.6-terra`. Each call uses
-`codex exec -s read-only --ephemeral --ignore-user-config --ignore-rules -C
-<repo-root> -m <model> -c model_reasoning_effort=medium --output-schema
-<schema-file> -o <output-file> -`. The prompt is supplied from a private file;
+output limit, 900 second document timeout, five second termination grace, and
+`xhigh` reasoning effort. The default model is `gpt-6-luna`; a Codex account
+that cannot use it fails every attempt, so the layer is incomplete with
+`backend-failed` and there is no automatic fallback to another backend. Each
+call uses `codex exec -s read-only --ephemeral --ignore-user-config
+--ignore-rules -C <repo-root> -m <model> -c model_reasoning_effort=xhigh
+[-c service_tier=priority] --output-schema <schema-file> -o <output-file> -`;
+`-c service_tier=priority` is present only when the run's
+`backendSelection.fast` is true, for every Codex call of the run. The prompt is supplied from a private file;
 it names the relative target, provenance, mode, up to 100 changed paths, and an
 identity containing only run ID and relative path. It instructs the model to
 judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. A copy found only inside an ignored nested checkout (a directory with its own .git file or directory, such as a worktree under .worktrees/) is not treated as the file existing elsewhere or as the wrong-path location. The prompt contains neither the content hash, document bytes, nor private absolute paths.
@@ -551,7 +590,8 @@ history. A successful row may additionally carry its string-array `evidence`.
 
 Every attempt appends one `model-call` evidence record before the layer's final
 `adapter-result`. It contains `callSeq`, relative `path`, `attempt`, `model`,
-`exit`, `timedOut`, `durationMs`, `outputBytes`, `valid`, and `reason`.
+`exit`, `timedOut`, `durationMs`, `outputBytes`, `valid`, and `reason`; for a
+Codex call `model` is `codex:<model>`.
 Codex records explicitly set `confirmed: true` because the engine observes the
 process completion.
 `metrics.modelCalls` counts these records: `total` and `attempts` are the actual
@@ -562,6 +602,96 @@ Complete model-call records survive recovery and retries. Only a final orphan
 `adapter-result` is removed; an orphan followed by another complete record is
 recovery-time `evidence-tampered`. Codex failures never switch a sealed run to
 Workflow.
+
+## agy document adapter
+
+For `agy:<model>`, where the model is `gemini-3.8-flash-medium`, L-DOC checks
+impacted documents in path order with at most three attempts per document and
+two concurrent calls. Each call uses `agy --input-format text --output-format
+json --print-timeout 15m --json-schema <schema-file> --model
+gemini-3.8-flash-medium --sandbox`, with the prompt on standard input and the
+repository root as the working directory. The engine stops waiting for a call
+after 960 seconds. The child environment holds only `PATH`, `LANG`, `LC_ALL`,
+`TMPDIR`, `HOME` (set to the value of `AGY_HOME`), and
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`. `--dangerously-skip-permissions` and `--mode`
+are never passed.
+
+agy is usable only when the capability probe finds it usable and the repository
+has no block. The probe checks, in this order, and records the first reason that
+applies in `agyReason`: `agy-home-unset` (no `AGY_HOME`), `agy-home-missing`
+(`AGY_HOME` is not an existing directory), `agy-not-installed` (no executable
+`agy` on `PATH`), then, in `<AGY_HOME>/.gemini/antigravity-cli/settings.json`,
+`agy-settings-unreadable` (unreadable, not a JSON object, or a `permissions`
+that is not an object), `agy-permissions-present` (a non-empty
+`permissions.allow`), and `agy-settings-hooks-present` (a `hooks` key); a
+missing `settings.json` is accepted. Next come `agy-tool-hook-missing` (no
+`<AGY_HOME>/.gemini/config/hooks.json`) and `agy-tool-hook-mismatch` (the file is
+unreadable, is not JSON, or differs as a JSON value from the tool-guard document
+below; key order and whitespace are ignored), then `agy-login-missing` (no
+readable `<AGY_HOME>/.gemini/antigravity-cli/antigravity-oauth-token`). Only then
+is agy started: `agy-tmp-unavailable` (no private temporary directory),
+`agy-version-failed` (`agy --version` failed or exceeded 20 seconds),
+`agy-models-timeout` and `agy-models-failed` (`agy models` exceeded 30 seconds,
+or failed or was unreadable), and `agy-model-missing` (the model is not listed).
+The repository check is separate and is recorded in `agyRepoBlock`:
+`agy-repo-settings-present` when the repository has a `.gemini/antigravity-cli`
+entry of any kind, otherwise `agy-workspace-customizations` when it has a
+top-level `.agents` entry. Plugins installed in the agy home are not inspected.
+
+The tool-guard document is exactly:
+
+```json
+{
+  "docaudit-deny-tools": {
+    "PreToolUse": [
+      {
+        "matcher": "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"decision\":\"deny\",\"reason\":\"docaudit: this tool is disabled while judging documents\"}'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Its matcher accepts every tool name except `find_by_name`, `finish`,
+`grep_search`, `list_dir`, and `view_file`, so tools that agy adds later are
+denied too. A tool denied by the hook does not run, is not reported in the JSON
+output, and is not a failure.
+
+The prompt is the Codex judge prompt with three sentence-level replacements,
+because agy refuses every shell command and a refusal fails the whole judgement:
+the instruction to use read-only commands becomes an instruction to run no
+shell or terminal command and to use only file-reading, directory-listing and
+file-search tools; the `find` example becomes a reference to those tools; and the
+`git ls-files` and `git check-ignore` steps become a statement that git tracking
+cannot be checked, with the nested-checkout rule decided by the presence of a
+`.git` file or directory alone. Each replaced sentence must occur exactly once in
+the prompt, and after the replacements no `find `, `git ls-files`,
+`git check-ignore`, or imperative `run ` may remain; otherwise the attempt fails
+with `agy-prompt-invalid` and agy is not started.
+
+The output is one JSON object with `status`, `denied_actions`, and
+`structured_output`. The attempt fails with the first reason that applies:
+`agy-home-unset` or `agy-home-missing` (checked again when the call starts),
+`agy-prompt-invalid`, `launch-failed`, `cancelled`, `timeout` (960 seconds),
+`exit-<n>`, `output-too-large` (over 2 MiB), `output-not-json` (not a JSON
+object), `agy-status` (`status` is not `SUCCESS`), `agy-denied` (a non-empty
+`denied_actions`, even with an answer), `structured-output-missing` (no object
+in `structured_output`; the 15 minute print timeout ends here), and then the
+judgement schema checks `output-type-mismatch`, `output-schema-mismatch`, and
+`identity-mismatch`. The output object, identity, failure rows, `model-call`
+records, and layer reasons are those of the Codex document adapter, with these
+differences: the judgement's `backendModel` and each record's `model` are
+`agy:gemini-3.8-flash-medium`, and an exhausted document's `failure` is
+`{"reason": <last attempt's reason>, "attempts": <attempts>}`. When every
+document fails with `tmp-unavailable` the layer reason is `tmp-unavailable`;
+otherwise a failed document gives `backend-failed`.
 
 ## Workflow document adapter
 
@@ -720,8 +850,14 @@ an outcome.
 
 ## Workflow launcher
 
-The launcher first runs `python3 -B "$CLAUDE_SKILL_DIR/engine" audit $ARGUMENTS`
-and reads only its final JSON line. While `nextAction` is `invoke-workflow`, it
+The launcher first runs `python3 -B "$CLAUDE_SKILL_DIR/engine" audit
+--ask-backend $ARGUMENTS` and reads only its final JSON line. For
+`choose-backend` it asks, with the question tool, which of `choices` to use
+(the first is the recommendation) and runs `audit --backend <backend>
+$ARGUMENTS`, adding `--fast` when the answer's `fast` is true. If the question
+is closed without an answer it uses the backend of the first choice; if the
+question tool is unavailable or refused it runs `audit $ARGUMENTS`. While
+`nextAction` is `invoke-workflow`, it
 invokes `Workflow({name: "docaudit:docaudit-verify", args: {runId,
 requestPath}})` and then runs `python3 -B "$CLAUDE_SKILL_DIR/engine" resume
 <runId>`. It repeats that pair at most three times. If the limit is exceeded it
@@ -805,7 +941,7 @@ or `claim`. Model output is JSON-only, is limited to 2 MiB, and is retried at
 most three times after launch, exit, timeout, shape, identity, path, evidence,
 or report-safety validation failure. A title, finding `file`, rationale, or
 claim `evidenceFile` containing a local home/private path token or an
-email-shaped token is invalid.
+email-shaped token is invalid. Each call is limited to 900 seconds.
 
 `L-ADVERSARIAL` makes one Codex call per impacted document, with up to four
 documents in flight. Its prompt identifies the repository-relative document,
@@ -852,11 +988,14 @@ missing claim is `claim-missing`; an unverified claim is
 `claim-unadjudicated`; inconsistent data is `claim-inconsistent`. Thus only a
 confirmed claim can contribute an optional blocking finding.
 
-When the sealed backend begins with `workflow:`, `L-SECURITY`,
-`L-ADVERSARIAL`, and `L-CLAIM` are incomplete with
-`workflow-adapter-unavailable`. If there are no impacted documents, security
-and adversarial instead complete without a call. Standard and focused profile
-behavior is unchanged.
+These three layers run on Codex with the default Codex model whichever backend
+the run sealed for documents, and they follow the run's Fast selection like
+every other Codex call. They need `available` in the sealed `capability.json`
+to be true. When it is not, `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` are
+incomplete with `codex-unavailable`, or with `workflow-adapter-unavailable`
+when the sealed backend begins with `workflow:`. If there are no impacted
+documents, security and adversarial instead complete without a call. Standard
+and focused profile behavior is unchanged.
 
 ## Enrichment and sibling phrases
 
@@ -900,7 +1039,7 @@ to record availability and SHA-256 for `ax`, `codegraph`, `ccc`, and
 
 ## Model-call reservation and stop state
 
-Before every Codex attempt, after cancellation is checked and before a child
+Before every Codex or agy attempt, after cancellation is checked and before a child
 process is started, the layer atomically reserves one call. A Workflow request
 generation atomically reserves `2 + document-count` immediately before it is
 issued: one reader, one verifier per requested document, and one closer. An

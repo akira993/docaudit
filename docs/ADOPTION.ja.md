@@ -16,6 +16,8 @@ English: [ADOPTION.md](ADOPTION.md)
 
 1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
 
+この版に更新する前に、前の版が開いたままにした run（`.claude/state/docaudit/run-open.json` がある状態）を、前の版の engine で閉じてください。最後まで resume するか、`resume <runId> --abandon` を実行します。開いたままの run をこの版で resume すると、`REFUSED backend-mismatch` で終わります。
+
 ## 2. 考え方
 
 docaudit は Markdown 文書を、それが説明しているコードや設定と突き合わせ、合わなくなった文書を報告します。文書を編集することはありません。すべての run は報告専用で、リポジトリ内に書くのは report と `.claude/state/docaudit/` 配下の run 状態だけです。
@@ -28,7 +30,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 - **層と profile。** run は層（layer）を実行します。`L-SCOPE` は影響集合の計算、`L-DOC` は影響を受けた各文書の検証、`L-PROJECT` は組み込みの文書チェックと `projectChecks` の実行、`L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` は追加のレビュー層です。profile（`focused`・`standard`・`extended`）がどの層を走らせるかを選び、設定の `enabledLayers` がリポジトリとして許可する層を宣言します。
 - **verdict と anchor。** verdict は `CONSISTENT` か `NEEDS_FIX` のどちらかです。`CONSISTENT` の run はその profile の anchor を前進させ、`--accept-baseline` で受理された full の `NEEDS_FIX` の run も同様に anchor を前進させます。次の incremental な run はどちらの場合も、その anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
 
-文書の検証は backend が行います。Codex CLI が engine の利用可能性検査に合格していればそれを使い、そうでなければ Claude Code の中では skill が workflow を通じて Claude Code の agent に検証を渡し、終わったら engine を再開します。
+文書の検証は backend が行います。backend は 3 つあります: Codex CLI、agy CLI、Claude Code の agent です。非対話の起動では、Codex、agy、Claude Code の agent の順で最初に使えるものを取ります。skill が監査を起動し、使えるものが 2 つ以上あるときは、どれを使うかを聞きます（第 7 節）。選択は run に封印され、再開しても同じ backend が使われます。Claude Code の agent を使うときは、skill が workflow を通じて agent に検証を渡し、終わったら engine を再開します。
 
 ## 3. 前提条件
 
@@ -37,7 +39,8 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | Claude Code と git | skill は Claude Code の中で動き、git が差分とスナップショットを提供します。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。`extended` profile で verdict を得るには事実上必須です（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile のレビュー層は常に Codex で動きます（第 8 節）。 |
+| agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
 リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、report の置き場所と state ディレクトリは最初の run で作られます。
@@ -100,13 +103,102 @@ Claude Code の中で、リポジトリにて:
 /docaudit:audit --profile focused     # profile の選択。既定は standard
 ```
 
-skill は engine を実行し、engine が検証を Claude Code の agent に渡したとき（`nextAction: invoke-workflow`）は検証 workflow を起動して engine を再開します。これを最大 3 回繰り返し、超えたら run を放棄します。最後に outcome・理由・report の path を表示します。
+skill は engine を `--ask-backend` 付きで起動します（下の「backend を選ぶ」）。engine を実行し、engine が検証を Claude Code の agent に渡したとき（`nextAction: invoke-workflow`）は検証 workflow を起動して engine を再開します。これを最大 3 回繰り返し、超えたら run を放棄します。最後に outcome・理由・report の path を表示します。
 
-Claude Code の外では同じ run をコマンドとして実行します。agent が使えないため Codex backend が必要です。
+Claude Code の外では同じ run をコマンドとして実行します。Claude Code の agent が使えないため、Codex backend か設定済みの agy が必要です（`--backend agy` または `--backend codex` で選べます）。
 
 ```sh
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
 ```
+
+### backend を選ぶ
+
+文書を検証できる backend は 3 つです: Codex CLI、agy CLI、Claude Code の agent（Claude Code の中だけ）。
+
+- `--backend agy|codex|claude` で backend を指名します。`--fast` は `--backend codex` と一緒のときだけ指定でき、Codex の priority service tier を使います。この 3 つ以外の `--backend` の値は `backend-invalid`、`--backend codex` なしの `--fast` は `fast-requires-codex` で拒否され、どちらも run を開く前の拒否です（終了値 3）。指名した backend を使えないときは、run が `undecided backend-unavailable` で終わります。
+- skill は常に engine を `--ask-backend` 付きで起動します。`--backend` を指定せず、使える backend が 2 つ以上あるとき、engine は run を開かず、`nextAction: choose-backend`・`runId: null`・`choices` 配列を出力して終了値 0 で終わります。`choices` には使える backend だけが次の順で並びます: agy（`{"backend":"agy","fast":false}`）、Codex、`"fast":true` の Codex、Claude Code の agent（`{"backend":"claude","fast":false}`）。skill は 1 つ選ぶよう尋ね（先頭が推奨）、`--backend`（`fast` が true なら `--fast` も）を付けて engine を起動し直します。答えずに閉じられたら先頭の選択肢を使い、質問できないときは skill が `--backend` なしで engine を起動するので、次の既定になります。
+- `--backend` も `--ask-backend` もないとき（素のコマンド、または上の最後の場合）、engine は Codex、agy、Claude Code の agent の順で最初に使える backend を取ります。したがって、agy は使えるが Codex が動かない環境では、主担当が Claude Code の agent から agy に変わります。Claude Code の agent を使い続けるには `--backend claude` を付けます。
+- 選択は run に書かれる（`run-options` 記録と `capability.json` の `backendSelection`）ので、`resume` でも同じ backend・同じ Fast 設定になります。
+
+Codex backend は model `gpt-6-luna` を reasoning effort `xhigh` で動かし、Fast では `-c service_tier=priority` が加わります。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6-luna` を使えないと、呼び出しが失敗して文書は 1 件も判定されず、run は `undecided backend-failed` で終わります。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
+
+### agy backend
+
+agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します。下の条件がすべて成り立つときだけ使われます。1 つでも欠けると、agy は何も表示されないまま `choices` と既定の順から外れ、理由は run の `capability.json` に記録されます（ホームと道具については `agyReason`、リポジトリについては `agyRepoBlock`）。
+
+**専用ホームを用意する。**
+
+1. 空のディレクトリを作り、engine を動かす環境で `AGY_HOME` にそれを指定します。例: `mkdir "$HOME/.agy-docaudit"` のあと `export AGY_HOME="$HOME/.agy-docaudit"`。`AGY_HOME` は必須です。未設定、または存在するディレクトリでなければ agy は使われません（ホームが無いと agy 自身が作ってしまうので、先にディレクトリを作ってください）。docaudit は agy を起動するたびに `HOME` を `AGY_HOME` に差し替え、それ以外は `PATH`・`LANG`・`LC_ALL`・`TMPDIR`・`AGY_CLI_DISABLE_AUTO_UPDATE=true` だけを渡すので、普段使いの agy のログイン・設定・plugin は使われません。
+2. そのホームでログインします。`HOME="$AGY_HOME" agy` で agy を起動し、求められたら sign in して終了します。docaudit は代わりにログインしません。`AGY_HOME` の `.gemini/antigravity-cli/antigravity-oauth-token` があり読めることを確認するだけです。
+3. 道具の制限（hook）を置きます。agy の Web 検索は権限設定では止まらないため、docaudit は、file を読む・探す 5 つの道具（`view_file`・`list_dir`・`find_by_name`・`grep_search`・`finish`）以外のすべての道具を拒否する hook を必須にしています。先に `mkdir -p "$AGY_HOME/.gemini/config"` を実行し、`AGY_HOME` の `.gemini/config/hooks.json` に、次の内容をそのまま置いてください。
+
+```json
+{
+  "docaudit-deny-tools": {
+    "PreToolUse": [
+      {
+        "matcher": "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"decision\":\"deny\",\"reason\":\"docaudit: this tool is disabled while judging documents\"}'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+   engine はこの file を JSON として読み、この文書と比べます。key の順序や空白は問いませんが、値の変更・欠け・余計な key があると agy は使えません。
+4. ホームに許可を置かないでください。`AGY_HOME` の `.gemini/antigravity-cli/settings.json` は無くてもかまいませんが、あるなら、空でない `permissions.allow` も `hooks` という key も持ってはいけません。別の目的で一時的に足した許可も含みます。
+
+**agy が使われない条件。** 起動時確認は次を上から順に調べ、最初に当たったものを `agyReason` に記録します。記録するのは理由だけで、file の中身は記録しません。agy 自体を起動するのは最後の確認（`agy --version` と `agy models`）だけです。
+
+| reason | agy を使わない理由 |
+|---|---|
+| `agy-home-unset` | `AGY_HOME` が未設定または空 |
+| `agy-home-missing` | `AGY_HOME` が存在するディレクトリではない |
+| `agy-not-installed` | `PATH` に実行できる `agy` がない |
+| `agy-settings-unreadable` | `settings.json` があるが読めない、JSON object でない、または `permissions` が object でない |
+| `agy-permissions-present` | `settings.json` に空でない `permissions.allow` がある |
+| `agy-settings-hooks-present` | `settings.json` に `hooks` という key がある |
+| `agy-tool-hook-missing` | `.gemini/config/hooks.json` が無い |
+| `agy-tool-hook-mismatch` | `.gemini/config/hooks.json` が読めない、JSON でない、または上の文書と違う |
+| `agy-login-missing` | ログインの token file が無い、または読めない |
+| `agy-tmp-unavailable` | private な一時ディレクトリを作れなかった |
+| `agy-version-failed` | `agy --version` が失敗した、または 20 秒を超えた |
+| `agy-models-timeout` | `agy models` が 30 秒を超えた |
+| `agy-models-failed` | `agy models` が失敗した、または出力を読めなかった |
+| `agy-model-missing` | `agy models` の出力に `gemini-3.8-flash-medium` がない |
+
+監査対象のリポジトリも調べ、`agyRepoBlock` に記録します。リポジトリに `.gemini/antigravity-cli` がある場合（中身は問いません。先に調べます）は `agy-repo-settings-present`、最上位に `.agents` がある場合は `agy-workspace-customizations` です。workspace の設定や hook は、リポジトリ自身の内容から command を実行でき、道具を許可することもできるため、そのようなリポジトリでは agy を使いません。
+
+**agy backend にできないこと。**
+
+- agy はシェルのコマンドを実行できない状態で動かします（command の要求は拒否され、その判定全体が失敗します）。そのため agy 用の judge 依頼文からは git を使う確認（`git ls-files`・`git check-ignore`）を外しています。agy では docaudit は追跡されている file と除外されている file を区別できません。入れ子の checkout の規則（独自の `.git` file またはディレクトリを持つディレクトリの下でしか見つからない複製は、別の checkout にあるもので、証拠にならない）は、その `.git` の有無だけで判定します。
+- agy は起動のたびに `AGY_HOME` へ会話と log を書くので、ディレクトリは時間とともに大きくなります。
+- docaudit は agy のホームに入れた plugin を検査しません。plugin は独自の hook を持てます。
+- 1 回の呼び出しは agy 側で 15 分（`--print-timeout 15m`）に制限され、engine は 960 秒で待つのをやめます。同時に走るのは 2 本で、文書ごとに最大 3 回試します。
+
+hook が拒否した道具は失敗ではありません。道具は実行されず、agy は続けます。すべての試行に失敗した文書は判定を持たず、run は `undecided backend-failed` で終わります。最後の試行の reason は文書の `failure` 記録に、各試行の reason は `model-call` 記録に残ります。
+
+| reason | 意味 |
+|---|---|
+| `agy-home-unset`、`agy-home-missing` | 判定の開始時に `AGY_HOME` が未設定またはディレクトリでない |
+| `agy-prompt-invalid` | docaudit が agy 用に書き換えた judge 依頼文が自身の検査に通らず、agy を起動しなかった（3 回とも同じ結果になる） |
+| `launch-failed` | agy を起動できなかった |
+| `cancelled` | run が止まる途中で、その試行を止めた |
+| `timeout` | agy が 960 秒以内に終わらなかった |
+| `exit-<n>` | agy が終了値 `n` で終わった（例: ログインしていない） |
+| `output-too-large` | 出力が 2 MiB を超えた |
+| `output-not-json` | 出力が JSON object でなかった |
+| `agy-status` | 報告された status が `SUCCESS` でなかった |
+| `agy-denied` | 答えが返っても、agy が拒否された操作を報告した |
+| `structured-output-missing` | 構造化された答えがなかった。15 分の上限もここに入る |
+| `output-type-mismatch`、`output-schema-mismatch`、`identity-mismatch` | 答えが判定の schema に合わない、または尋ねられた run と文書をそのまま返していない |
+| `tmp-unavailable` | private な一時ディレクトリを作れなかった |
 
 ### anchor のライフサイクル
 
@@ -130,11 +222,11 @@ skill は前の session から残った run を回復しません。手作業か
 
 | profile | 層 | backend |
 |---|---|---|
-| `focused` | `L-SCOPE`・`L-DOC` | Codex が使えればそれ、なければ Claude Code の agent |
+| `focused` | `L-SCOPE`・`L-DOC` | 第 7 節で選んだ、または既定になった backend |
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
-| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 選択は同じだが、verdict を得るには Codex が必要 |
+| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、4 つのレビュー層は常に Codex で動く |
 
-`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。Claude Code の agent 経由では `L-CLAIM` が incomplete（`workflow-adapter-unavailable`）となり run は `undecided` で終わります。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
+`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。レビュー層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 
 `extended` では、adversarial 層が影響を受けた文書ごとに根拠付きの矛盾を求め、security 層が文書化された手順・設定・秘密情報の扱い・権限を run ごとに 1 回レビューし、claim 層が adversarial の `FAIL` をひとつずつリポジトリと照合します。この 4 層の所見のうち verdict を `NEEDS_FIX` にできるのは confirmed な claim だけで、adversarial と security の所見は情報提供です。文書の `FAIL` はどの profile でも verdict を `NEEDS_FIX` にし、project check の `FAIL` は `L-PROJECT` を実行する profile（`standard`・`extended`）で `NEEDS_FIX` にします。
 
@@ -146,7 +238,7 @@ skill は前の session から残った run を回復しません。手作業か
 
 ## 10. 結果を読む
 
-- **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付きます。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡しを含みます。3 は run を開くことを拒否したこと（設定・profile・run 状態の問題。`reason` に名前が出ます）、4 は開いた run が続行できなかったことです。
+- **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付き、backend の質問では `nextAction: choose-backend`・`runId` が null・`choices` が付いて run は開かれません。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡し・backend の質問を含みます。3 は run を開くことを拒否したこと（設定・profile・run 状態の問題。`reason` に名前が出ます）、4 は開いた run が続行できなかったことです。
 - **report。** `report.path` に公開され、固定の front matter と、run・対象文書・所見・判定・anchor・計測・証跡の節を持ちます。見出しと定型句の大半は日本語です。所見ごとに 1 行が並びます。文書は verdict と食い違いの 1 行要約、それ以外の所見（project check・link・claim など）は severity と要約です。judgement の裏付けとなる証拠の文字列（Codex backend には rationale に `file:line` を引用するよう、Claude Code の agent にはリポジトリ相対の証拠を示すよう求めます）は、run の証拠台帳と履歴の `judgement` 行に、Claude Code の agent で検証した run ではさらに `runs/<runId>/requests/<seq>/judgements/` に保持されます。所見の安全でない要約と履歴の `judgement` 行は report と同じ規則で伏字にし、証拠台帳と `requests/<seq>/judgements/` は原文のままです。検証が始まる前に `undecided` で終わった run は report を公開しません。
 - **state ディレクトリ。** `.claude/state/docaudit/history.jsonl` は run の outcome と judgement を 1 行ずつ記録し（ほかに `flip`・`anchor`・`legacy`・`migration` の行）、`anchors/<profile>.json` が現在の anchor、`runs/<runId>/` が封印された manifest・adapter 結果と judgement を含む証拠台帳・`verdict.json` を保持します。state ディレクトリを commit する（履歴を version 管理下で監査可能にする）か無視する（clone ごとのローカル状態にする）かは一度決めてください。engine はどちらでも動きます。
 
@@ -158,11 +250,13 @@ skill は前の session から残った run を回復しません。手作業か
 | `NEEDS_FIX` | 少なくとも 1 文書が失敗、または blocking な所見（切れたリンク・失敗した project check・confirmed な claim） | report に出たものを直して再実行 |
 | `NEEDS_FIX`（`--full --accept-baseline` で受理） | FAIL が文書判定だけ | anchor は前進した。既知 FAIL は文書を直したときに再判定 |
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
-| `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、Claude Code の中でもない） | Codex を install または修復するか、Claude Code の中で実行 |
+| `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、使える agy もなく、Claude Code の中でもない）、または `--backend` で指名した backend を使えない | Codex を install または修復するか、agy を設定する（第 7 節）か、Claude Code の中で実行 |
+| `undecided backend-failed` | 少なくとも 1 件の文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6-luna` を使えない） | 文書の `failure` 記録と `model-call` 記録の理由を確認するか、別の backend を選ぶ |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | 対応表を絞るか上限を上げるか、`--full` で実行 |
 | `undecided corpus-unreadable` | 検証用 mirror の準備中に corpus 内の文書を読めなかった（Claude Code の agent backend） | file を読めるようにする（権限、壊れた symlink）して再実行 |
 | `undecided sandbox-unavailable` | `sandbox-exec` のない環境で `projectChecks` を設定 | Linux では `projectChecks` を空に |
-| `undecided workflow-adapter-unavailable` | Claude Code の agent 経由の `extended` | Codex backend を使う |
+| `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
+| `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided abandoned` | run が放棄された | 再実行 |
 | `REFUSED worktree-modified` | run 中に作業木が変わった | run 中は file を編集・生成しない。再実行 |
 | `REFUSED config-drift` | run 中に `.claude/docaudit.json` が変わった | 再実行 |
