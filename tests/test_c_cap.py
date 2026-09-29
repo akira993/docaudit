@@ -71,7 +71,7 @@ class CapabilityTests(unittest.TestCase):
             )
             self.assertTrue(result.authPresent)
             self.assertTrue(result.authReadable)
-            self.assertEqual(result.probeContractVersion, "capability/1.1")
+            self.assertEqual(result.probeContractVersion, "capability/1.2")
             self.assertTrue(result.workflowAvailable)
             self.assertEqual(result.workflowReason, "claude-code-env")
             self.assertEqual(calls[0][0][0], os.path.realpath(binary))

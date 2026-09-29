@@ -395,7 +395,7 @@ def _reconcile_ledger(handle, dependencies, journal, enabled):
     return ledger, done
 
 
-def _run_layers(repo, handle, dependencies, journal, manifest, scope, config, timeline):
+def _run_layers(repo, handle, dependencies, journal, manifest, scope, config, timeline, capability):
     ledger, done = _reconcile_ledger(handle, dependencies, journal, manifest["enabledLayers"])
     run_dir_fd = c_io.open_dir_fd(handle.state_dir_fd, f"runs/{handle.run_id}")
     stopped = _event(journal, "model-call-limit")
@@ -474,6 +474,7 @@ def _run_layers(repo, handle, dependencies, journal, manifest, scope, config, ti
             context = {
                 "repo": repo, "run_id": handle.run_id, "layer_id": layer_id,
                 "manifest": manifest, "scope": scope, "config_facts": config.facts,
+                "capability": capability,
                 "run_dir_fd": run_dir_fd, "deps": dependencies,
                 "append_record": append_record,
                 "append_journal": append_journal,
@@ -972,7 +973,7 @@ def __scope_errors():
 
 def _after_seal(repo, handle, guard, dependencies, journal, config, scope, plan, capability, manifest, timeline):
     try:
-        _run_layers(repo, handle, dependencies, journal, manifest, scope, config, timeline)
+        _run_layers(repo, handle, dependencies, journal, manifest, scope, config, timeline, capability)
     except c_workflow.ExternalWait as wait:
         c_run.transition(
             handle, "awaiting-external-backend", {"requestSeq": wait.request_seq},

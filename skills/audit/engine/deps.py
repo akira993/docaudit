@@ -15,9 +15,9 @@ from . import procs
 from .profiles import PROFILE_TABLE
 
 
-DEFAULT_CODEX_MODEL = "gpt-5.6-terra"
+DEFAULT_CODEX_MODEL = "gpt-6-luna"
 DEFAULT_WORKFLOW_MODEL = "sonnet"
-PROBE_CONTRACT_VERSION = "capability/1.1"
+PROBE_CONTRACT_VERSION = "capability/1.2"
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,12 @@ class CapabilityResult:
     probeContractVersion: str | None
     workflowAvailable: bool = False
     workflowReason: str | None = None
+    agyAvailable: bool = False
+    agyReason: str | None = None
+    agyCliVersion: str | None = None
+    agyExecutableHash: str | None = None
+    agyHomeOrigin: str | None = None
+    agyModelAvailable: bool | None = None
 
     def document(self) -> dict[str, Any]:
         return asdict(self)

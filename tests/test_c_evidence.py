@@ -33,7 +33,9 @@ class EvidenceTests(unittest.TestCase):
             {
                 "available", "reason", "cliVersion", "executableHash", "homeOrigin",
                 "homePathHash", "authPresent", "authReadable", "probeContractVersion",
-                "workflowAvailable", "workflowReason",
+                "workflowAvailable", "workflowReason", "agyAvailable", "agyReason",
+                "agyCliVersion", "agyExecutableHash", "agyHomeOrigin",
+                "agyModelAvailable",
             },
         )
         self.assertIsNone(deps.resolve_backend("auto", missing))

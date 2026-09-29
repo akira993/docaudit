@@ -11,11 +11,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from . import c_cap, c_codex, c_io, c_report, c_scope, procs
-from .deps import AdapterResult
+from .deps import DEFAULT_CODEX_MODEL, AdapterResult
 
 
 MAX_ATTEMPTS = 3
-TIMEOUT_SEC = 600
+TIMEOUT_SEC = 900
 CONCURRENCY = 4
 FINDING_SEVERITIES = {"critical", "high", "medium", "low"}
 SEVERITY = {"critical": "FAIL", "high": "FAIL", "medium": "WARN", "low": "INFO"}
@@ -61,6 +61,20 @@ def _resolved(ctx):
 
 def _model(ctx):
     return _resolved(ctx).split(":", 1)[1]
+
+
+def _codex_route(ctx):
+    """Return (model, None) when Codex can run this layer, else (None, reason)."""
+    capability = ctx.get("capability")
+    if capability is None:
+        if _resolved(ctx).startswith("workflow:"):
+            return None, "workflow-adapter-unavailable"
+        return _model(ctx), None
+    if capability.get("available") is True:
+        return DEFAULT_CODEX_MODEL, None
+    if _resolved(ctx).startswith("workflow:"):
+        return None, "workflow-adapter-unavailable"
+    return None, "codex-unavailable"
 
 
 def _safe(value: str) -> bool:
@@ -136,7 +150,7 @@ def _sequence(ctx):
     return next_value
 
 
-def _run_findings(ctx, *, role: str, targets):
+def _run_findings(ctx, *, role: str, targets, model: str):
     cancel = threading.Event()
     next_call_seq = _sequence(ctx)
 
@@ -165,7 +179,7 @@ def _run_findings(ctx, *, role: str, targets):
         return c_codex.call(
             call_ctx, prompt=prompt, schema=FINDING_SCHEMA,
             validate=lambda output: _finding_validate(ctx, output), role=role,
-            doc_id=target, model=_model(ctx), timeout_sec=TIMEOUT_SEC,
+            doc_id=target, model=model, timeout_sec=TIMEOUT_SEC,
             attempts=MAX_ATTEMPTS, cancel=cancel,
         )
 
@@ -200,12 +214,12 @@ def adversarial(ctx):
     impacted = sorted(ctx["scope"].get("impacted", ()), key=lambda row: row["path"])
     if not impacted:
         return AdapterResult(ctx["layer_id"], "L-ADVERSARIAL", "complete")
-    if _resolved(ctx).startswith("workflow:"):
+    model, unavailable = _codex_route(ctx)
+    if unavailable is not None:
         return AdapterResult(
-            ctx["layer_id"], "L-ADVERSARIAL", "incomplete",
-            reason="workflow-adapter-unavailable",
+            ctx["layer_id"], "L-ADVERSARIAL", "incomplete", reason=unavailable,
         )
-    results = _run_findings(ctx, role="adversarial", targets=impacted)
+    results = _run_findings(ctx, role="adversarial", targets=impacted, model=model)
     raw = [item for value, reason, _ in results if reason is None for item in value["findings"]]
     findings, duplicates = _normal_findings("adv", raw, blocking=False)
     failed = any(reason is not None for _, reason, _ in results)
@@ -219,12 +233,12 @@ def adversarial(ctx):
 def security(ctx):
     if not ctx["scope"].get("impacted"):
         return AdapterResult(ctx["layer_id"], "L-SECURITY", "complete")
-    if _resolved(ctx).startswith("workflow:"):
+    model, unavailable = _codex_route(ctx)
+    if unavailable is not None:
         return AdapterResult(
-            ctx["layer_id"], "L-SECURITY", "incomplete",
-            reason="workflow-adapter-unavailable",
+            ctx["layer_id"], "L-SECURITY", "incomplete", reason=unavailable,
         )
-    value, reason, _ = _run_findings(ctx, role="security", targets=(None,))[0]
+    value, reason, _ = _run_findings(ctx, role="security", targets=(None,), model=model)[0]
     raw = value["findings"] if reason is None else ()
     findings, duplicates = _normal_findings("sec", raw, blocking=False)
     return AdapterResult(
@@ -271,10 +285,10 @@ def claim(ctx):
         return AdapterResult(
             ctx["layer_id"], "L-CLAIM", "incomplete", reason="claim-input-missing",
         )
-    if _resolved(ctx).startswith("workflow:"):
+    model, unavailable = _codex_route(ctx)
+    if unavailable is not None:
         return AdapterResult(
-            ctx["layer_id"], "L-CLAIM", "incomplete",
-            reason="workflow-adapter-unavailable",
+            ctx["layer_id"], "L-CLAIM", "incomplete", reason=unavailable,
         )
     targets = [item for item in source.get("findings", ())
                if isinstance(item, Mapping) and item.get("severity") == "FAIL"]
@@ -296,7 +310,7 @@ def claim(ctx):
         value, reason, _ = c_codex.call(
             call_ctx, prompt=prompt, schema=CLAIM_SCHEMA,
             validate=lambda output, identity=item["id"]: _claim_validate(ctx, identity, output),
-            role="claim", doc_id=item["id"], model=_model(ctx), timeout_sec=TIMEOUT_SEC,
+            role="claim", doc_id=item["id"], model=model, timeout_sec=TIMEOUT_SEC,
             attempts=MAX_ATTEMPTS, cancel=cancel,
         )
         if value is not None and reason == "unverified" and value.get("state") == "unverified":

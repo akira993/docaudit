@@ -132,6 +132,7 @@ Follow the docaudit verifier instructions. Read and cite only the repository (pl
   {
     schema: JUDGEMENT,
     agentType: 'docaudit:doc-impact-verifier',
+    effort: 'medium',
     phase: 'Verify',
     label: `verify:${document.docId}`,
   },

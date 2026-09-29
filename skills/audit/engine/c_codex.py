@@ -14,7 +14,7 @@ from .c_tmp import TmpUnavailable, exclusive_file, private_temp
 
 OUTPUT_MAX_BYTES = 2 * 1024 * 1024
 KILL_GRACE_SEC = 5
-MODEL_REASONING_EFFORT = "medium"
+MODEL_REASONING_EFFORT = "xhigh"
 
 
 class BudgetExceeded(Exception):
@@ -144,6 +144,11 @@ def call(
     records: list[dict[str, Any]] = []
     last_reason = "cancelled"
     last_value = None
+    selection = (ctx.get("capability") or {}).get("backendSelection")
+    fast_args = (
+        ["-c", "service_tier=priority"]
+        if isinstance(selection, Mapping) and selection.get("fast") is True else []
+    )
     try:
         with private_temp(root, source_env, "codex") as temporary:
             schema_path = os.path.join(temporary, "schema.json")
@@ -163,6 +168,7 @@ def call(
                     find_codex(env), "exec", "-s", "read-only", "--ephemeral",
                     "--ignore-user-config", "--ignore-rules", "-C", root, "-m", model,
                     "-c", f"model_reasoning_effort={MODEL_REASONING_EFFORT}",
+                    *fast_args,
                     "--output-schema", schema_path, "-o", output_path, "-",
                 ]
                 try:
@@ -197,7 +203,7 @@ def call(
                 data = {
                     "callSeq": sequence, "path": doc_id, "attempt": attempt,
                     "role": role, "docId": doc_id,
-                    "model": ctx["manifest"].get("resolvedBackendModel", model),
+                    "model": "codex:" + model,
                     "exit": result.get("exit"), "timedOut": result.get("timedOut", False),
                     "durationMs": result.get("durationMs", 0), "outputBytes": output_bytes,
                     "valid": value is not None and reason is None,
