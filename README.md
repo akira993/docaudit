@@ -4,7 +4,7 @@ docaudit audits a repository's Markdown documentation against the code and confi
 
 New to docaudit? Read [docs/ADOPTION.md](docs/ADOPTION.md) (日本語: [docs/ADOPTION.ja.md](docs/ADOPTION.ja.md)) for the full adoption guide, and [docs/PROMPTS.md](docs/PROMPTS.md) (日本語: [docs/PROMPTS.ja.md](docs/PROMPTS.ja.md)) for copy-paste prompts.
 
-A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it cannot reach one, `undecided` or `REFUSED`. See [docs/ADOPTION.md](docs/ADOPTION.md) for what each outcome means and how to act on it. A run that ends `CONSISTENT` or `NEEDS_FIX` is backed by a per-document judgement and publishes a Markdown report into your repository, with the evidence kept in the run's records. Runs are change-driven: after the first full audit, later runs look only at the documents impacted by what changed.
+A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it cannot reach one, `undecided` or `REFUSED`. See [docs/ADOPTION.md](docs/ADOPTION.md) for what each outcome means and how to act on it. A run that ends `CONSISTENT` or `NEEDS_FIX` is backed by a per-document judgement and publishes a Markdown report into your repository, with the evidence kept in the run's records. Runs are change-driven: after the first full audit, later runs judge only the documents impacted by what changed (where enabled, the project-wide checks still scan the whole corpus).
 
 ## Requirements
 
@@ -82,7 +82,7 @@ In Claude Code, inside the repository:
 ```
 /docaudit:audit --full            # first run of a profile: audit the whole corpus
 /docaudit:audit --full --accept-baseline # accept a document-only NEEDS_FIX baseline
-/docaudit:audit                   # later runs: only the documents impacted by changes since the last accepted run
+/docaudit:audit                   # later runs: judge only the documents impacted by changes since the last accepted run (where enabled, project-wide checks scan the whole corpus)
 /docaudit:audit --profile focused # choose a profile (focused, standard, extended); each profile starts with its own --full run
 /docaudit:audit --backend codex   # choose who verifies the documents (agy, codex or claude); --fast is allowed only with codex
 ```

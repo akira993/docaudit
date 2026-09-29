@@ -253,7 +253,7 @@ Configuration may report `config-missing`, `config-needs-migration`, or
 `mutex-timeout`.
 
 Migration may report `migration-source-missing`,
-`migration-config-invalid:<key|json>`,
+`migration-config-invalid:<key|json|size>`,
 `migration-history-invalid:<index|json>`, `migration-last-run-invalid`,
 `migration-line-too-large`, `migration-input-changed`,
 `migration-target-exists`, or `migration-run-open`. Normal config validation
@@ -910,7 +910,9 @@ be angle-bracketed. Fragment and
 query parts are discarded; empty, `http:`, `https:`, `mailto:`, and `tel:`
 targets are ignored. Relative paths use the containing document directory.
 Repository escapes fail `links` and are ignored by `orphan`. Existing files and
-directories satisfy a link.
+directories satisfy a link, unless a component of the path is a symbolic link or
+the resolved path lies outside the repository root; such a link fails `links` as
+`broken relative link`.
 
 Configured `projectChecks` run only on Darwin through
 `/usr/bin/sandbox-exec`. The engine first runs one sandboxed `/usr/bin/true`
@@ -973,8 +975,9 @@ missing source result is incomplete with `claim-input-missing`. Its output has
 exactly `findingId`, `state`, `evidenceFile`, `evidenceLine`, and `rationale`.
 `state` is `confirmed`, `rejected`, or `unverified`. The first two require an
 existing regular repository-relative evidence file of at most 2 MiB and a
-one-based line number within that file. `unverified` is retried; three
-successive `unverified` answers produce a non-blocking `WARN` claim. A launch,
+one-based line number within that file. `unverified` is retried, up to
+three attempts in all; if the answer of the last attempt is `unverified`, the
+claim is a non-blocking `WARN`, whatever the earlier attempts returned. A launch,
 exit, timeout, or invalid response after all attempts makes the layer
 incomplete with `backend-failed`.
 
@@ -1069,5 +1072,5 @@ limit is null; `rejected` is zero or one. The invariant is
 `total <= reserved`. Equality holds for an uninterrupted Codex run and for
 received Workflow generations. It may be strict after interruption between
 reservation and model-call recording, or when a Workflow generation was
-issued but never received. Duration calibration excludes Workflow runs and
-all runs where `total != reserved`.
+issued but never received. The final duration is recorded in
+`metrics.json`, but the engine performs no duration calibration.
