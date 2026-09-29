@@ -549,11 +549,11 @@ With `--ask-backend`, no `--backend`, and at least two usable backends, the
 engine opens no run, exits with status 0, and prints the backend question:
 
 ```json
-{"nextAction":"choose-backend","runId":null,"outcome":null,"choices":[{"backend":"agy","fast":false},{"backend":"codex","fast":false},{"backend":"codex","fast":true},{"backend":"claude","fast":false}]}
+{"nextAction":"choose-backend","runId":null,"outcome":null,"choices":[{"backend":"codex","fast":false},{"backend":"codex","fast":true},{"backend":"agy","fast":false},{"backend":"claude","fast":false}]}
 ```
 
-`choices` lists only the usable backends, in the order agy, Codex, Codex with
-Fast, Claude Code agents (`claude`). A backend is usable under the same
+`choices` lists only the usable backends, in the order Codex, Codex with
+Fast, agy, Claude Code agents (`claude`). A backend is usable under the same
 conditions as in the resolution described next, including `agyRepoBlock` for
 agy. Without `--backend`
 and `--ask-backend`, or with only one usable backend, the engine takes the

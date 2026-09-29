@@ -793,10 +793,10 @@ def _backend_choices(repo, dependencies):
     if agy + codex + claude < 2:
         return None
     choices = []
-    if agy:
-        choices.append({"backend": "agy", "fast": False})
     if codex:
         choices += [{"backend": "codex", "fast": False}, {"backend": "codex", "fast": True}]
+    if agy:
+        choices.append({"backend": "agy", "fast": False})
     if claude:
         choices.append({"backend": "claude", "fast": False})
     return choices

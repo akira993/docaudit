@@ -98,4 +98,4 @@ skill 自体を非対話で動かすには、リポジトリで Claude Code を 
 claude -p '/docaudit:audit --backend codex' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
 ```
 
-期待: 対話実行と同じ outcome。session が workflow とその agent を実行できる必要があり、上のツール一覧がそれを許可します。print mode でも `--backend codex`（または別の backend の指名）を残してください。そこでは backend の質問に答える人がおらず、質問の終わり方によって skill は engine の既定の順か先頭の選択肢を取り、先頭は agy が使えるときは agy になります。
+期待: 対話実行と同じ outcome。session が workflow とその agent を実行できる必要があり、上のツール一覧がそれを許可します。print mode でも `--backend codex`（または別の backend の指名）を残してください。そこでは backend の質問に答える人がおらず、質問の終わり方によって skill は engine の既定の順か先頭の選択肢を取り、先頭は Codex が使えるときは Codex になります。

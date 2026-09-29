@@ -98,4 +98,4 @@ To run the skill itself non-interactively, use Claude Code in print mode from th
 claude -p '/docaudit:audit --backend codex' --permission-mode acceptEdits --allowedTools 'Bash,Read,Grep,Glob,Write,Workflow,Skill,Agent'
 ```
 
-Expected: the same outcomes as an interactive run. The session must be allowed to run the workflow and its agents, which is what the tool list above grants. Keep `--backend codex` (or name another backend) in print mode: nobody can answer the backend question there, and depending on how the question ends the skill takes either the engine's default order or the first choice, which is agy when agy is usable.
+Expected: the same outcomes as an interactive run. The session must be allowed to run the workflow and its agents, which is what the tool list above grants. Keep `--backend codex` (or name another backend) in print mode: nobody can answer the backend question there, and depending on how the question ends the skill takes either the engine's default order or the first choice, which is Codex when Codex is usable.

@@ -212,7 +212,7 @@ class CliOptionTests(_IsolatedEnv):
             self.assertEqual((result["nextAction"], result["runId"]), ("choose-backend", None))
             self.assertEqual(
                 [(item["backend"], item["fast"]) for item in result["choices"]],
-                [("agy", False), ("codex", False), ("codex", True), ("claude", False)],
+                [("codex", False), ("codex", True), ("agy", False), ("claude", False)],
             )
             self.assertNotIn("exitCode", result)
 
@@ -274,9 +274,9 @@ class ChooseBackendTests(_IsolatedEnv):
                 (0, "choose-backend", None),
             )
             self.assertEqual(result["choices"], [
-                {"backend": "agy", "fast": False},
                 {"backend": "codex", "fast": False},
                 {"backend": "codex", "fast": True},
+                {"backend": "agy", "fast": False},
                 {"backend": "claude", "fast": False},
             ])
             self.assertFalse(_runs_dir(root).exists())
@@ -284,7 +284,7 @@ class ChooseBackendTests(_IsolatedEnv):
 
     def test_only_usable_choices_are_listed(self):
         cases = (
-            (dict(agy=True, codex=True), [("agy", False), ("codex", False), ("codex", True)]),
+            (dict(agy=True, codex=True), [("codex", False), ("codex", True), ("agy", False)]),
             (dict(agy=True, workflow=True), [("agy", False), ("claude", False)]),
             (dict(codex=True, workflow=True),
              [("codex", False), ("codex", True), ("claude", False)]),
