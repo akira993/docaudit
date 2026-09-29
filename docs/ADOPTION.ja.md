@@ -177,7 +177,7 @@ agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します�
 
 **agy backend にできないこと。**
 
-- agy はシェルのコマンドを実行できない状態で動かします（command の要求は拒否され、その判定全体が失敗します）。そのため agy 用の judge 依頼文からは git を使う確認（`git ls-files`・`git check-ignore`）を外しています。agy では docaudit は追跡されている file と除外されている file を区別できません。入れ子の checkout の規則（独自の `.git` file またはディレクトリを持つディレクトリの下でしか見つからない複製は、別の checkout にあるもので、証拠にならない）は、その `.git` の有無だけで判定します。
+- agy はシェルのコマンドを実行できない状態で動かします（必須の deny hook により、コマンドの道具は止まりますが判定は続きます。hook が無い環境で agy を直接使うと、権限の要る道具が自動で拒否され、返答全体が空になります）。そのため agy 用の judge 依頼文からは git を使う確認（`git ls-files`・`git check-ignore`）を外しています。agy では docaudit は追跡されている file と除外されている file を区別できません。入れ子の checkout の規則（独自の `.git` file またはディレクトリを持つディレクトリの下でしか見つからない複製は、別の checkout にあるもので、証拠にならない）は、その `.git` の有無だけで判定します。
 - agy は起動のたびに `AGY_HOME` へ会話と log を書くので、ディレクトリは時間とともに大きくなります。
 - docaudit は agy のホームに入れた plugin を検査しません。plugin は独自の hook を持てます。
 - 1 回の呼び出しは agy 側で 15 分（`--print-timeout 15m`）に制限され、engine は 960 秒で待つのをやめます。同時に走るのは 2 本で、文書ごとに最大 3 回試します。

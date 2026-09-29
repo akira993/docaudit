@@ -177,7 +177,7 @@ The audited repository is checked as well, and it is recorded as `agyRepoBlock`:
 
 **What the agy backend cannot do.**
 
-- agy is run without the ability to run shell commands (a command request is refused and makes the whole judgement fail), so the judge prompt for agy leaves out the checks that need git (`git ls-files`, `git check-ignore`). Under agy docaudit cannot tell tracked files from ignored ones; the nested-checkout rule (a copy found only under a directory that has its own `.git` file or directory is another checkout, not evidence) is decided by the presence of that `.git` entry alone.
+- agy is run without the ability to run shell commands (the required deny hook stops the command tool while the judgement continues; without that hook, running agy directly makes it auto-deny tools that need permission and the whole reply comes back empty), so the judge prompt for agy leaves out the checks that need git (`git ls-files`, `git check-ignore`). Under agy docaudit cannot tell tracked files from ignored ones; the nested-checkout rule (a copy found only under a directory that has its own `.git` file or directory is another checkout, not evidence) is decided by the presence of that `.git` entry alone.
 - Every agy launch writes a conversation and logs into `AGY_HOME`, so the directory grows over time.
 - docaudit does not inspect the plugins installed in the agy home; a plugin can carry hooks of its own.
 - One call is limited to 15 minutes by agy (`--print-timeout 15m`), and the engine stops waiting after 960 seconds. Two calls run at a time, and each document gets up to three attempts.
