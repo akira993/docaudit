@@ -15,6 +15,9 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--full", action="store_true")
     audit.add_argument("--accept-baseline", action="store_true")
     audit.add_argument("--profile", choices=tuple(row["name"] for row in PROFILE_TABLE))
+    audit.add_argument("--ask-backend", action="store_true")
+    audit.add_argument("--backend")
+    audit.add_argument("--fast", action="store_true")
     audit.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     resume = sub.add_parser("resume")
     resume.add_argument("run_id")
@@ -44,7 +47,8 @@ def main(argv=None) -> int:
         if args.command == "migrate":
             result = c_migrate.migrate(args.repo_root, dry_run=args.dry_run)
         elif args.command == "audit":
-            result = c_engine.run(args.repo_root, full=args.full, profile=args.profile, accept_baseline=args.accept_baseline)
+            result = c_engine.run(args.repo_root, full=args.full, profile=args.profile, accept_baseline=args.accept_baseline,
+                                  backend=args.backend, fast=args.fast, ask_backend=args.ask_backend)
         elif args.abandon:
             c_run.abandon(args.repo_root, args.run_id)
             result = {"exitCode": 0, "nextAction": "done", "runId": args.run_id,
@@ -60,7 +64,7 @@ def main(argv=None) -> int:
     code = int(result.get("exitCode", 4))
     output_fields = (
         "nextAction", "runId", "outcome", "reason", "reportPath",
-        "requestSeq", "requestPath",
+        "requestSeq", "requestPath", "choices",
     )
     if args.command == "migrate":
         output_fields += ("config", "counts", "inputs", "anchor", "runOpen")

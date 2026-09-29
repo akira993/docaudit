@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import Any, Mapping
 
 from . import (
-    c_config, c_evidence, c_gate, c_history, c_io, c_profile, c_report,
+    c_cap, c_config, c_evidence, c_gate, c_history, c_io, c_profile, c_report,
     c_retrieval, c_run, c_workflow,
 )
 from .contract import CONTRACT_VERSION
@@ -23,6 +23,7 @@ from .layers import LAYER_REGISTRY
 
 
 COMPONENT_KEYS = ("C-SCOPE", "C-PROFILE", "C-EVIDENCE", "C-GATE", "C-REPORT")
+BACKENDS = ("agy", "codex", "claude")
 CONFIG_PATH = ".claude/docaudit.json"
 STATE = ".claude/state/docaudit"
 RUN_NAMES = c_evidence.RUN_FILES
@@ -748,7 +749,7 @@ def _finish_close(handle, dependencies, journal):
 
 def _next(
     exit_code, action, run_id, outcome, reason=None, report_path=None,
-    request_seq=None, request_path=None,
+    request_seq=None, request_path=None, choices=None,
 ):
     value = {"nextAction": action, "runId": run_id}
     if action != "invoke-workflow" or outcome is not None:
@@ -761,8 +762,44 @@ def _next(
         value["requestSeq"] = request_seq
     if request_path is not None:
         value["requestPath"] = request_path
+    if choices is not None:
+        value["choices"] = choices
     value["exitCode"] = exit_code
     return value
+
+
+def _selection(value):
+    value = value if isinstance(value, Mapping) else {}
+    backend = value.get("backend")
+    return {"backend": backend if backend in BACKENDS else None, "fast": value.get("fast") is True}
+
+
+def _with_selection(repo, capability, selection):
+    """Merge the run's backend selection and the repository's agy block into a probe result."""
+    document = dict(capability_document(capability))
+    document["backendSelection"] = _selection(selection)
+    document["agyRepoBlock"] = c_cap.agy_repo_block(repo.path)
+    return document
+
+
+def _backend_choices(repo, dependencies):
+    """The backends to ask about, or None when at most one backend is usable."""
+    env = dict(os.environ)
+    env["CLAUDE_PROJECT_DIR"] = repo.path
+    facts = capability_document(dependencies.capability_resolver("auto", env))
+    agy = facts.get("agyAvailable") is True and c_cap.agy_repo_block(repo.path) is None
+    codex = facts.get("available") is True
+    claude = facts.get("workflowAvailable") is True
+    if agy + codex + claude < 2:
+        return None
+    choices = []
+    if agy:
+        choices.append({"backend": "agy", "fast": False})
+    if codex:
+        choices += [{"backend": "codex", "fast": False}, {"backend": "codex", "fast": True}]
+    if claude:
+        choices.append({"backend": "claude", "fast": False})
+    return choices
 
 
 def _early(repo, handle, dependencies, journal, timeline, reason, profile_name, outcome="undecided", ledger=None, scope=None):
@@ -908,13 +945,13 @@ def _tree_before(repo, handle, allowed, resolved):
     return digest
 
 
-def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, config, accept_baseline=False):
+def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, config, accept_baseline=False, backend_selection=None):
     guard.bind_run(handle.run_id)
     c_retrieval.cleanup_orphans(repo, handle.run_id)
     files, directories = _stage1(handle.run_id)
     guard.allow(paths=files, mkdir_paths=directories)
     journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
-    journal.append(c_run.append_journal(handle, "run-options", {"mode": mode, "requestedProfile": requested_profile, "acceptBaseline": bool(accept_baseline)}))
+    journal.append(c_run.append_journal(handle, "run-options", {"mode": mode, "requestedProfile": requested_profile, "acceptBaseline": bool(accept_baseline), "backendSelection": _selection(backend_selection)}))
     for recovered in handle.recovered_tmp:
         journal.append(c_run.append_journal(handle, "tmp-recovered", {"path": recovered}))
     timeline = _Timeline(dependencies)
@@ -930,7 +967,7 @@ def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, confi
     capability_env = dict(os.environ)
     capability_env["CLAUDE_PROJECT_DIR"] = repo.path
     capability = timeline.call("C-EVIDENCE", dependencies.capability_resolver, plan.backendDirective, capability_env)
-    capability_doc = capability_document(capability)
+    capability_doc = _with_selection(repo, capability, backend_selection)
     _file_stage(handle, dependencies, journal, "capability-detected", "capability.json", capability_doc)
     resolved = c_evidence.deps.resolve_backend(plan.backendDirective, capability_doc)
     if resolved is None:
@@ -1069,6 +1106,7 @@ def _drive_resume(repo, handle, guard, dependencies):
     mode = option_data.get("mode", "incremental")
     requested_profile = option_data.get("requestedProfile", handle.profile_name)
     accept_baseline = option_data.get("acceptBaseline", False)
+    backend_selection = option_data.get("backendSelection")
     timeline = _Timeline(dependencies)
     config_event = _event(journal, "config-sealed")
     if config_event is None:
@@ -1117,7 +1155,7 @@ def _drive_resume(repo, handle, guard, dependencies):
         capability_env = dict(os.environ)
         capability_env["CLAUDE_PROJECT_DIR"] = repo.path
         computed_capability = timeline.call("C-EVIDENCE", dependencies.capability_resolver, plan["backendDirective"], capability_env)
-        computed_capability = capability_document(computed_capability)
+        computed_capability = _with_selection(repo, computed_capability, backend_selection)
     else:
         computed_capability = {}
     capability = _file_stage(handle, dependencies, journal, "capability-detected", "capability.json", computed_capability)
@@ -1174,11 +1212,15 @@ def _drive_resume(repo, handle, guard, dependencies):
     return _after_seal(repo, handle, guard, dependencies, journal, config, scope, plan, capability, manifest, timeline)
 
 
-def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineDeps | None = None, accept_baseline: bool = False):
+def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineDeps | None = None, accept_baseline: bool = False, backend: str | None = None, fast: bool = False, ask_backend: bool = False):
     dependencies = deps or production()
     mode = "full" if full else "incremental"
     if accept_baseline and not full:
         return _next(3, "abort", None, None, "accept-baseline-requires-full")
+    if backend is not None and backend not in BACKENDS:
+        return _next(3, "abort", None, None, "backend-invalid")
+    if fast and backend != "codex":
+        return _next(3, "abort", None, None, "fast-requires-codex")
     try:
         c_profile.validate_table(dependencies.profile_table, LAYER_REGISTRY)
         # Configuration and fixed-profile rejection happen before a run is opened.
@@ -1186,13 +1228,17 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
             config = c_config.load_config(repo)
             if profile is not None:
                 c_profile.resolve(dependencies.profile_table, profile, config.capability)
+            if ask_backend and backend is None:
+                choices = _backend_choices(repo, dependencies)
+                if choices is not None:
+                    return _next(0, "choose-backend", None, None, choices=choices)
             stage_files, stage_dirs = _stage0()
             guard = c_io.register_write_guard(repo, stage_files, stage_dirs, allow_run_bootstrap=True)
             handle = None
             try:
                 handle = c_run.open_run(repo, profile or _default_row(dependencies.profile_table)["name"])
                 try:
-                    return _drive_new(repo, handle, guard, profile, mode, dependencies, config, accept_baseline)
+                    return _drive_new(repo, handle, guard, profile, mode, dependencies, config, accept_baseline, {"backend": backend, "fast": fast})
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
                 except (OSError, c_io.IoRejected,

@@ -134,11 +134,19 @@ def resolve_backend(
         return directive if workflow_available and len(directive) > len("workflow:") else None
     if directive != "auto":
         return None
-    if codex_available:
-        return "codex:" + DEFAULT_CODEX_MODEL
-    if workflow_available:
-        return "workflow:" + DEFAULT_WORKFLOW_MODEL
-    return None
+    from .c_cap import AGY_MODEL
+
+    agy_available = facts.get("agyAvailable") is True and facts.get("agyRepoBlock") is None
+    candidates = {
+        "codex": ("codex:" + DEFAULT_CODEX_MODEL) if codex_available else None,
+        "agy": ("agy:" + AGY_MODEL) if agy_available else None,
+        "claude": ("workflow:" + DEFAULT_WORKFLOW_MODEL) if workflow_available else None,
+    }
+    selection = facts.get("backendSelection")
+    chosen = selection.get("backend") if isinstance(selection, Mapping) else None
+    if chosen is not None:
+        return candidates.get(chosen)
+    return candidates["codex"] or candidates["agy"] or candidates["claude"]
 
 
 def _scope_adapter(ctx: dict[str, Any]) -> AdapterResult:

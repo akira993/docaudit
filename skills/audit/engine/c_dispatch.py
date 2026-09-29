@@ -75,6 +75,9 @@ def adapter(ctx):
     if resolved.startswith("workflow:"):
         from . import c_workflow
         return c_workflow.adapter(ctx)
+    if resolved.startswith("agy:"):
+        from . import c_agy
+        return c_agy.adapter(ctx)
     if not resolved.startswith("codex:") or not resolved[len("codex:"):]:
         from .c_evidence import EvidenceRejected
         raise EvidenceRejected("backend-mismatch")
