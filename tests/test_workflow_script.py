@@ -121,6 +121,22 @@ class WorkflowScriptTests(unittest.TestCase):
             self.assertIn(text, agent)
             self.assertIn(text, source)
 
+    def test_verifier_searches_with_read_only_bash_commands(self):
+        agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
+        source = (self.root / "workflows" / "docaudit-verify.js").read_text(encoding="utf-8")
+        for text in ("find . -name", "grep -rn", "git ls-files --error-unmatch -- <path>", "git check-ignore -q -- <path>"):
+            self.assertIn(text, agent)
+            self.assertIn(text, source)
+        self.assertIn("from the repository root", agent)
+        self.assertIn("Grep and Glob are available", agent)
+        self.assertIn("read-only", agent)
+        self.assertIn("redirection", agent)
+        self.assertLess(agent.index("git ls-files --error-unmatch"), agent.index("git check-ignore"))
+        self.assertLess(source.index("git ls-files --error-unmatch"), source.index("git check-ignore"))
+        self.assertNotIn("inspect the repository with Read, Grep, and Glob", agent)
+        self.assertNotIn("Glob `**/", agent)
+        self.assertNotIn("fall back\nto targeted Grep and Read", agent)
+
 
 if __name__ == "__main__":
     unittest.main()
