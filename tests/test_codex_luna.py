@@ -19,7 +19,7 @@ from skills.audit.engine import c_codex, c_dispatch, c_optional, deps
 
 LUNA = "gpt-6-luna"
 AGY_PRIMARY = "agy:gemini-3.8-flash-medium"
-WORKFLOW_PRIMARY = "workflow:sonnet"
+WORKFLOW_PRIMARY = "workflow:claude-haiku-5-5"
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["value"],
@@ -236,7 +236,7 @@ class ExtendedLayerTests(unittest.TestCase):
                 result, argvs = self._run(layer_id, WORKFLOW_PRIMARY, dict(CODEX_UP))
                 self.assertEqual(len(argvs), 1, (result.status, result.reason))
                 self.assertEqual(_flag_value(argvs[0], "-m"), LUNA)
-                self.assertNotIn("sonnet", argvs[0])
+                self.assertNotIn("haiku", argvs[0])
                 self.assertEqual((result.status, result.reason), ("complete", None))
                 for kind, data in self.records:
                     self.assertEqual((kind, data["model"]), ("model-call", "codex:" + LUNA))
@@ -320,9 +320,9 @@ class WorkflowVerifierEffortTests(unittest.TestCase):
         self.assertGreaterEqual(start, 0)
         return self.source[start:end]
 
-    def test_verifier_call_names_effort_medium(self):
+    def test_verifier_call_names_effort_high(self):
         options = self._verifier_options()
-        self.assertRegex(options, r"effort:\s*'medium'")
+        self.assertRegex(options, r"effort:\s*'high'")
         self.assertNotRegex(options, r"effort:\s*'low'")
 
     def test_reader_and_closer_stay_low(self):
@@ -333,8 +333,8 @@ class WorkflowVerifierEffortTests(unittest.TestCase):
                 rf"agentType: '{agent}', effort: 'low', phase: '{phase}'",
             )
 
-    def test_medium_appears_only_on_the_verifier(self):
-        self.assertEqual(len(re.findall(r"effort:\s*'medium'", self.source)), 1)
+    def test_high_appears_only_on_the_verifier(self):
+        self.assertEqual(len(re.findall(r"effort:\s*'high'", self.source)), 1)
 
 
 if __name__ == "__main__":

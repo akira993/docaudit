@@ -1,7 +1,8 @@
 ---
 name: doc-impact-verifier
 description: Verify one impacted document against the current repository and persist its judgement.
-model: sonnet
+model: claude-haiku-5-5
+effort: high
 tools: Read, Grep, Glob, Bash
 ---
 

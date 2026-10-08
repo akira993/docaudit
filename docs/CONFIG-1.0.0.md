@@ -559,7 +559,8 @@ conditions as in the resolution described next, including `agyRepoBlock` for
 agy. Without `--backend`
 and `--ask-backend`, or with only one usable backend, the engine takes the
 first usable backend in the order Codex (`codex:gpt-6-luna`), agy
-(`agy:gemini-3.8-flash-medium`), Claude Code agents (`workflow:sonnet`). With
+(`agy:gemini-3.8-flash-medium`), Claude Code agents
+(`workflow:claude-haiku-5-5`). With
 `--backend`, only the named backend is considered, and one that is not usable
 gives `undecided backend-unavailable`.
 
