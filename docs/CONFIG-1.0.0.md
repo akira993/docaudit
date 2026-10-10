@@ -948,7 +948,7 @@ validation failure. A title, finding `file`, rationale, or
 claim `evidenceFile` containing a local home/private path token or an
 email-shaped token is invalid. Each call is limited to 900 seconds.
 
-`L-ADVERSARIAL` makes one Codex call per impacted document, with up to four
+`L-ADVERSARIAL` makes one Codex assessment per impacted document, with up to four
 documents in flight. Its prompt identifies the repository-relative document,
 provenance, and changed-path summary and asks for evidence-backed
 contradictions with code, configuration, other documents, section references,
@@ -965,7 +965,7 @@ existing regular repository-relative file. Findings are normalized as follows:
 - `blocking` is always false. Duplicate IDs collapse to one finding and the
   removed count is recorded as `deduplicated`.
 
-`L-SECURITY` makes one Codex call for the whole run when at least one document
+`L-SECURITY` makes one Codex assessment for the whole run when at least one document
 is impacted. Its prompt lists impacted documents and asks for evidence-backed
 problems in documented procedures, configuration, secret handling, and
 permissions. It uses the same schema, validation, severity map, and duplicate
