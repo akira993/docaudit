@@ -30,7 +30,7 @@ Expected: `CONSISTENT` once every document passes and no blocking finding remain
 I changed the files in the last commit. Run /docaudit:audit and tell me which documents were impacted, the verdict, and the report path.
 ```
 
-Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, or narrow the impact map.
+Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, raise `impact.maxImpactedDocs`, or narrow the routes that add documents (`impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck`); changed documents themselves always count.
 
 ## 4. Quick check with the focused profile
 

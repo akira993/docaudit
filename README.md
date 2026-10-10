@@ -18,7 +18,7 @@ A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it
 
 ## Install
 
-Before updating from an earlier version, close every run that version left open (a `.claude/state/docaudit/run-open.json` exists) with the earlier version's engine, by resuming it to the end or with `resume <runId> --abandon`; a run left open and resumed by this version ends `REFUSED backend-mismatch`.
+Before updating from an earlier version, close every run that version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine, by resuming it to the end or with `resume <runId> --abandon`; a run left open and resumed by this version ends `REFUSED backend-mismatch`.
 
 The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.2.0`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
@@ -97,7 +97,7 @@ Profiles decide which layers run:
 |---|---|---|
 | `focused` | scope, document verification | quick check of the impacted documents |
 | `standard` (default) | focused + project checks | the everyday audit |
-| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex CLI: the four review layers always run on Codex, whichever backend verifies the documents. Without a usable Codex, `L-CLAIM` is incomplete (`codex-unavailable`, or `workflow-adapter-unavailable` when the documents are verified through Claude Code agents) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
+| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex CLI: `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` always run on Codex, whichever backend verifies the documents, while `L-ENRICH` makes no model calls. Without a usable Codex, `L-CLAIM` is incomplete (`codex-unavailable`, or `workflow-adapter-unavailable` when the documents are verified through Claude Code agents) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
 
 Outside Claude Code, with the Codex CLI or a set-up agy available, the same audit runs as a command (add `--backend agy` or `--backend codex` to choose; without it the first usable of Codex and agy is taken):
 

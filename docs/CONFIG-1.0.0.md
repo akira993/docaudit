@@ -941,9 +941,10 @@ complete. Only `sandbox-unavailable` and `tmp-unavailable` make it incomplete.
 The `extended` profile selects four opt-in layers. Unselected adapters are not
 started. Every Codex prompt begins with the machine-readable line
 `docaudit-role: <role>`, where the role is `judge`, `adversarial`, `security`,
-or `claim`. Model output is JSON-only, is limited to 2 MiB, and is retried at
-most three times after launch, exit, timeout, shape, identity, path, evidence,
-or report-safety validation failure. A title, finding `file`, rationale, or
+or `claim`. Model output is JSON-only, is limited to 2 MiB, and each call is
+attempted at most three times in total, with another attempt after a launch,
+exit, timeout, shape, identity, path, evidence, or report-safety validation
+failure. A title, finding `file`, rationale, or
 claim `evidenceFile` containing a local home/private path token or an
 email-shaped token is invalid. Each call is limited to 900 seconds.
 

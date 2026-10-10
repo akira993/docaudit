@@ -16,7 +16,7 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 
 Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
 
-Before updating to this version, close every run that an earlier version left open (a `.claude/state/docaudit/run-open.json` exists) with the earlier version's engine: resume it to the end, or run `resume <runId> --abandon`. A run left open and resumed by this version ends `REFUSED backend-mismatch`.
+Before updating to this version, close every run that an earlier version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine: resume it to the end, or run `resume <runId> --abandon`. A run left open and resumed by this version ends `REFUSED backend-mismatch`.
 
 ## 2. Mental model
 
@@ -122,6 +122,8 @@ Three backends can verify documents: the Codex CLI, the agy CLI, and Claude Code
 
 The Codex backend runs the model `gpt-6-luna` at reasoning effort `xhigh`, and Fast adds `-c service_tier=priority`. One call is limited to 900 seconds; each document gets up to three attempts, with four calls in flight. If the Codex account cannot use `gpt-6-luna`, the calls fail, no document gets a judgement, and the run ends `undecided backend-failed`. docaudit does not switch to another backend by itself; choose one with `--backend`.
 
+The Claude Code agents backend runs the verifier agent `docaudit:doc-impact-verifier` with model `claude-sonnet-5-5` at effort `high`.
+
 ### The agy backend
 
 agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`. It is used only when every condition below holds. When one fails, agy is left out of `choices` and of the default order without a message; the reason is recorded in the run's `capability.json` (`agyReason` for the home and the tool, `agyRepoBlock` for the repository).
@@ -224,7 +226,7 @@ The skill does not recover a run left over from an earlier session; do it by han
 |---|---|---|
 | `focused` | `L-SCOPE`, `L-DOC` | the backend chosen or defaulted in section 7 |
 | `standard` (default) | focused + `L-PROJECT` | same |
-| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection for the documents, but the four review layers always run on Codex |
+| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection for the documents, but `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` always run on Codex, while `L-ENRICH` makes no model calls |
 
 `extended` can be selected only when `enabledLayers` lists all seven layers; otherwise the engine refuses to open the run with `capability-missing:<layer>` (exit status 3). The review layers run on Codex whichever backend verifies the documents (with Fast, if you chose it), so they need a Codex that passes the availability check. Without one, `L-CLAIM` is incomplete and the run ends `undecided`: with reason `codex-unavailable` when the documents are verified through agy, and `workflow-adapter-unavailable` when they are verified through Claude Code agents. With impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls. Use `extended` where the Codex CLI passes the availability check.
 

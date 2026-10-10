@@ -16,7 +16,7 @@ English: [ADOPTION.md](ADOPTION.md)
 
 1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
 
-この版に更新する前に、前の版が開いたままにした run（`.claude/state/docaudit/run-open.json` がある状態）を、前の版の engine で閉じてください。最後まで resume するか、`resume <runId> --abandon` を実行します。開いたままの run をこの版で resume すると、`REFUSED backend-mismatch` で終わります。
+この版に更新する前に、前の版が開いたままにした run（`.claude/state/docaudit/run-open.json` があり、`state` が `closed` でない状態）を、前の版の engine で閉じてください。最後まで resume するか、`resume <runId> --abandon` を実行します。開いたままの run をこの版で resume すると、`REFUSED backend-mismatch` で終わります。
 
 ## 2. 考え方
 
@@ -122,6 +122,8 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 
 Codex backend は model `gpt-6-luna` を reasoning effort `xhigh` で動かし、Fast では `-c service_tier=priority` が加わります。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6-luna` を使えないと、呼び出しが失敗して文書は 1 件も判定されず、run は `undecided backend-failed` で終わります。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
 
+Claude Code の agent backend は判定役の agent `docaudit:doc-impact-verifier` を model `claude-sonnet-5-5`、effort `high` で動かします。
+
 ### agy backend
 
 agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します。下の条件がすべて成り立つときだけ使われます。1 つでも欠けると、agy は何も表示されないまま `choices` と既定の順から外れ、理由は run の `capability.json` に記録されます（ホームと道具については `agyReason`、リポジトリについては `agyRepoBlock`）。
@@ -224,7 +226,7 @@ skill は前の session から残った run を回復しません。手作業か
 |---|---|---|
 | `focused` | `L-SCOPE`・`L-DOC` | 第 7 節で選んだ、または既定になった backend |
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
-| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、4 つのレビュー層は常に Codex で動く |
+| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動き、`L-ENRICH` はモデルを呼ばない |
 
 `extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。レビュー層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 
