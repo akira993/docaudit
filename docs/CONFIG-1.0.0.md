@@ -637,8 +637,8 @@ below; key order and whitespace are ignored), then `agy-login-missing` (no
 readable `<AGY_HOME>/.gemini/antigravity-cli/antigravity-oauth-token`). Only then
 is agy started: `agy-tmp-unavailable` (no private temporary directory),
 `agy-version-failed` (`agy --version` failed or exceeded 20 seconds),
-`agy-models-timeout` and `agy-models-failed` (`agy models` exceeded 30 seconds,
-or failed or was unreadable), and `agy-model-missing` (the model is not listed).
+`agy-models-timeout` and `agy-models-failed` (`agy models` exceeded 30 seconds, or failed or was unreadable),
+and `agy-model-missing` (the model is absent as a whitespace-separated word from the first 1 MiB of `agy models` output).
 The repository check is separate and is recorded in `agyRepoBlock`:
 `agy-repo-settings-present` when the repository has a `.gemini/antigravity-cli`
 entry of any kind, otherwise `agy-workspace-customizations` when it has a
@@ -824,8 +824,8 @@ symbolic link before copying makes the run undecided with reason
 With the mirror as its working directory, indexing runs `mdq index --root .
 --db ../index.sqlite --lang ja-jp`. Every `mdq` child receives only
 `PATH`, `HOME`, `LANG`, `LC_ALL`, and `TMPDIR` when present, plus
-`PYTHONUTF8=1`; `mdq index` has a 120-second limit and `mdq stats` a
-20-second limit, with process-group cleanup. Health
+`PYTHONUTF8=1`; `mdq index` has a 120-second limit; `mdq stats`, `mdq list`,
+and `mdq search` each have a 20-second limit, with process-group cleanup. Health
 requires `mdq stats --db <index database> --lang ja-jp` to report the sealed
 corpus file count and at least one chunk, and the first word of a heading from
 `mdq list --db <index database> --lang ja-jp` to produce at least one `mdq

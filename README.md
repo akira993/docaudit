@@ -4,21 +4,21 @@ docaudit audits a repository's Markdown documentation against the code and confi
 
 New to docaudit? Read [docs/ADOPTION.md](docs/ADOPTION.md) (日本語: [docs/ADOPTION.ja.md](docs/ADOPTION.ja.md)) for the full adoption guide, and [docs/PROMPTS.md](docs/PROMPTS.md) (日本語: [docs/PROMPTS.ja.md](docs/PROMPTS.ja.md)) for copy-paste prompts.
 
-A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it cannot reach one, `undecided` or `REFUSED`. See [docs/ADOPTION.md](docs/ADOPTION.md) for what each outcome means and how to act on it. A run that ends `CONSISTENT` or `NEEDS_FIX` is backed by a per-document judgement and publishes a Markdown report into your repository, with the evidence kept in the run's records. Runs are change-driven: after the first full audit, later runs judge only the documents impacted by what changed (where enabled, the project-wide checks still scan the whole corpus).
+A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it cannot reach one, `undecided` or `REFUSED`. See [docs/ADOPTION.md](docs/ADOPTION.md) for what each outcome means and how to act on it. A run that ends `CONSISTENT` or `NEEDS_FIX` publishes a Markdown report into your repository, with the evidence kept in the run's records. Each impacted document has a judgement; when none are impacted, there are no document judgements. Runs are change-driven: after the first full audit, later runs judge impacted documents and, when `changes.regressionRecheck` is enabled, documents whose latest judgement for the profile was `FAIL` (where enabled, built-in `L-PROJECT` checks inspect corpus documents without limiting themselves to the impacted set).
 
 ## Requirements
 
 - macOS or Linux.
 - git. Claude Code is needed only to run docaudit as its plugin skill; outside Claude Code the engine runs as a command and needs the Codex CLI or the agy CLI (see below).
 - Python 3.12 or newer. The engine uses only the standard library.
-- Optional: the Codex CLI. When the engine's availability check passes (`codex` on `PATH`, a working `codex --version` and `codex exec --help`, and an `auth.json` in the Codex home that is a readable regular file, not a symlink or other non-regular file) it can send document verification to Codex, which runs the model `gpt-6-luna` at reasoning effort `xhigh`. If the account cannot use that model, no impacted document gets a judgement and the run ends `undecided`.
+- Optional: the Codex CLI. When the engine's availability check passes (`codex` on `PATH`, a working `codex --version` and `codex exec --help`, and an `auth.json` in the Codex home that is a readable regular file, not a symlink or other non-regular file) it can send document verification to Codex, which runs the model `gpt-6-luna` at reasoning effort `xhigh`. If the account cannot use that model and documents are impacted, model calls fail without document judgements and the run ends `undecided backend-failed`; when no documents are impacted, no model call is made.
 - Optional: the agy CLI. It is used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file that [docs/ADOPTION.md](docs/ADOPTION.md) (section 7) gives verbatim. That section also lists every condition under which agy is not used.
 - Backends: document verification runs on Codex, agy, or Claude Code agents (only inside Claude Code). When the skill starts an audit and two or more are usable it asks which to use. Without a choice (a plain command, or a question that cannot be asked) the engine takes the first usable one in the order Codex, agy, Claude Code agents, so an environment with agy but without Codex uses agy where it used Claude Code agents before; `--backend claude` keeps Claude Code agents. `--backend agy|codex|claude` sets the choice explicitly.
 - Node.js is needed only to run the repository's own test suite.
 
 ## Install
 
-Before updating from an earlier version, close every run that version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine, by resuming it to the end or with `resume <runId> --abandon`; a run left open and resumed by this version ends `REFUSED backend-mismatch`.
+Before updating from an earlier version, close every run that version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine, by resuming it to the end or with `resume <runId> --abandon`; for a sealed `manifest`, the gate's backend check returns `REFUSED backend-mismatch` if its recorded backend and model differ from those resolved using this version's defaults.
 
 The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-1.2.1`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
@@ -82,7 +82,7 @@ In Claude Code, inside the repository:
 ```
 /docaudit:audit --full            # first run of a profile: audit the whole corpus
 /docaudit:audit --full --accept-baseline # accept a document-only NEEDS_FIX baseline
-/docaudit:audit                   # later runs: judge only the documents impacted by changes since the last accepted run (where enabled, project-wide checks scan the whole corpus)
+/docaudit:audit                   # later runs: judge documents impacted by changes since the last accepted run (where enabled, built-in project checks can inspect corpus documents beyond the impacted set)
 /docaudit:audit --profile focused # choose a profile (focused, standard, extended); each profile starts with its own --full run
 /docaudit:audit --backend codex   # choose who verifies the documents (agy, codex or claude); --fast is allowed only with codex
 ```
@@ -97,7 +97,7 @@ Profiles decide which layers run:
 |---|---|---|
 | `focused` | scope, document verification | quick check of the impacted documents |
 | `standard` (default) | focused + project checks | the everyday audit |
-| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex CLI: `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` always run on Codex, whichever backend verifies the documents, while `L-ENRICH` makes no model calls. Without a usable Codex, `L-CLAIM` is incomplete (`codex-unavailable`, or `workflow-adapter-unavailable` when the documents are verified through Claude Code agents) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
+| `extended` | standard + enrichment, security, adversarial and claim review | release sweeps. Requires all seven layers in `enabledLayers` and the Codex CLI: `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` use Codex for model calls, whichever backend verifies the documents, while `L-ENRICH` makes no model calls. Without a usable Codex, `L-CLAIM` is incomplete (`codex-unavailable`, or `workflow-adapter-unavailable` when the documents are verified through Claude Code agents) and the run ends `undecided` without a verdict; with impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls |
 
 Outside Claude Code, with the Codex CLI or a set-up agy available, the same audit runs as a command (add `--backend agy` or `--backend codex` to choose; without it the first usable of Codex and agy is taken):
 

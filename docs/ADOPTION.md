@@ -12,11 +12,11 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 2. In the repository, create `.claude/docaudit.json` (section 4) and commit it.
 3. Run `/docaudit:audit --full`. Read the report it publishes and fix the documents it flags.
 4. Repeat `/docaudit:audit --full` until the run ends `CONSISTENT`. That run writes the first anchor. If `NEEDS_FIX` is blocked only by document judgements, `/docaudit:audit --full --accept-baseline` accepts the baseline and enables later incremental runs. It cannot accept broken local links, failed project checks, or any other non-document blocking finding; fix those findings in the report first.
-5. From then on run `/docaudit:audit` after changes. Only the documents impacted by what changed are judged; enabled `L-PROJECT` checks still scan the whole corpus.
+5. From then on run `/docaudit:audit` after changes. Documents impacted by changes are judged; when `changes.regressionRecheck` is enabled, documents whose latest judgement for the profile was `FAIL` are also judged. Enabled built-in `L-PROJECT` checks inspect corpus documents without limiting themselves to the impacted set.
 
 Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
 
-Before updating to this version, close every run that an earlier version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine: resume it to the end, or run `resume <runId> --abandon`. A run left open and resumed by this version ends `REFUSED backend-mismatch`.
+Before updating to this version, close every run that an earlier version left open (a `.claude/state/docaudit/run-open.json` exists with `state` other than `closed`) with the earlier version's engine: resume it to the end, or run `resume <runId> --abandon`. For a sealed `manifest`, the gate's backend check returns `REFUSED backend-mismatch` if its recorded backend and model differ from those resolved using this version's defaults.
 
 ## 2. Mental model
 
@@ -39,11 +39,11 @@ Document verification is performed by a backend. Three exist: the Codex CLI, the
 | macOS or Linux | `projectChecks` run only on macOS (they use `sandbox-exec`). |
 | git | git supplies the diff and the snapshot. Claude Code is required for the `/docaudit:audit` skill and the Claude Code agents backend. |
 | Python 3.12 or newer | The engine uses only the standard library. |
-| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). The Codex account must be able to use the model `gpt-6-luna` (section 7). The `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` layers of the `extended` profile always run on Codex (section 8). |
+| Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). The Codex account must be able to use the model `gpt-6-luna` (section 7). The `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` layers of the `extended` profile use Codex for model calls (section 8). |
 | agy CLI (optional) | Used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file (section 7, "The agy backend"). |
 | Node.js (optional) | Only for running the repository's own test suite. |
 
-A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the report path and the state directory are created on the first run.
+A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the engine creates the state directory when it opens a run or during `migrate`; see section 4's `report.path` for the report directory and file.
 
 ## 4. Write the configuration
 
@@ -63,7 +63,7 @@ Commit the configuration. It is part of the repository's contract, and the engin
 `impact.map` is a list of `{"source": <glob>, "docs": [<path>, ...]}` entries. When a changed file matches `source`, every listed document becomes impacted. Two rules make the map useful:
 
 - **Map by responsibility, not by directory.** A document that explains the deployment procedure should be mapped from the deployment scripts and the configuration files it cites, wherever they live.
-- **Prefer several small entries to one broad entry.** A single `src/**` entry that lists every document makes every change audit the whole corpus; the run then hits `impact.maxImpactedDocs` and ends `undecided impact-limit`.
+- **Prefer several small entries to one broad entry.** A single `src/**` entry listing every corpus document marks those documents as impacted when a changed path matches `src/**`; if the total number of impacted corpus documents exceeds `impact.maxImpactedDocs`, the run ends `undecided impact-limit`.
 
 `impact.ssotSources` works like the map for files that are the single source of truth for a value (a version file, a port table): a change to the source always impacts the documents that cite it.
 
@@ -120,7 +120,7 @@ Three backends can verify documents: the Codex CLI, the agy CLI, and Claude Code
 - Without `--backend` and without `--ask-backend` (a plain command, or the last case above) the engine takes the first usable backend in the order Codex, agy, Claude Code agents. An environment with a usable agy but no working Codex therefore changes its main backend from Claude Code agents to agy; pass `--backend claude` to keep Claude Code agents.
 - The choice is written into the run (`backendSelection` in the `run-options` record and in `capability.json`), so `resume` uses the same backend and the same Fast setting.
 
-The Codex backend runs the model `gpt-6-luna` at reasoning effort `xhigh`, and Fast adds `-c service_tier=priority`. One call is limited to 900 seconds; each document gets up to three attempts, with four calls in flight. If the Codex account cannot use `gpt-6-luna`, the calls fail, no document gets a judgement, and the run ends `undecided backend-failed`. docaudit does not switch to another backend by itself; choose one with `--backend`.
+The Codex backend runs the model `gpt-6-luna` at reasoning effort `xhigh`, and Fast adds `-c service_tier=priority`. One call is limited to 900 seconds; each document gets up to three attempts, with four calls in flight. If the Codex account cannot use `gpt-6-luna` and documents are impacted, the calls fail without document judgements and the run ends `undecided backend-failed`; when no documents are impacted, no model call is made. docaudit does not switch to another backend by itself; choose one with `--backend`.
 
 The Claude Code agents backend runs the verifier agent `docaudit:doc-impact-verifier` with model `claude-sonnet-5-5` at effort `high`.
 
@@ -173,7 +173,7 @@ agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`.
 | `agy-version-failed` | `agy --version` failed or took longer than 20 seconds |
 | `agy-models-timeout` | `agy models` took longer than 30 seconds |
 | `agy-models-failed` | `agy models` failed or its output could not be read |
-| `agy-model-missing` | `gemini-3.8-flash-medium` is not in the output of `agy models` |
+| `agy-model-missing` | the first 1 MiB of `agy models` output has no whitespace-separated word equal to `gemini-3.8-flash-medium` |
 
 The audited repository is checked as well, and it is recorded as `agyRepoBlock`: `agy-repo-settings-present` when the repository has a `.gemini/antigravity-cli` entry (whatever it contains; checked first), and `agy-workspace-customizations` when it has a top-level `.agents` entry. Workspace settings and hooks can run commands from the repository's own content and can allow tools, so agy is not used on such a repository.
 
@@ -226,11 +226,11 @@ The skill does not recover a run left over from an earlier session; do it by han
 |---|---|---|
 | `focused` | `L-SCOPE`, `L-DOC` | the backend chosen or defaulted in section 7 |
 | `standard` (default) | focused + `L-PROJECT` | same |
-| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection for the documents, but `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` always run on Codex, while `L-ENRICH` makes no model calls |
+| `extended` | standard + `L-ENRICH`, `L-SECURITY`, `L-ADVERSARIAL`, `L-CLAIM` | same selection for the documents, but `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` use Codex for model calls, while `L-ENRICH` makes no model calls |
 
 `extended` can be selected only when `enabledLayers` lists all seven layers; otherwise the engine refuses to open the run with `capability-missing:<layer>` (exit status 3). The `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` layers run on Codex whichever backend verifies the documents (with Fast, if you chose it), so they need a Codex that passes the availability check. Without one, `L-CLAIM` is incomplete and the run ends `undecided`: with reason `codex-unavailable` when the documents are verified through agy, and `workflow-adapter-unavailable` when they are verified through Claude Code agents. With impacted documents `L-SECURITY` and `L-ADVERSARIAL` are incomplete for the same reason, and with no impacted documents they complete without calls. Use `extended` where the Codex CLI passes the availability check.
 
-In `extended`, the adversarial layer asks for evidence-backed contradictions per impacted document, the security layer reviews documented procedures, configuration, secret handling, and permissions once per run, and the claim layer re-checks every adversarial `FAIL` against the repository. Of the findings from these four layers, only a confirmed claim can make the verdict `NEEDS_FIX`; adversarial and security findings are informational. A document `FAIL` makes the verdict `NEEDS_FIX` in every profile, and a project-check `FAIL` does so in the profiles that run `L-PROJECT` (`standard` and `extended`).
+In `extended`, the adversarial layer asks for evidence-backed contradictions per impacted document, the security layer reviews documented procedures, configuration, secret handling, and permissions once per run, and the claim layer re-checks every adversarial `FAIL` against the repository. Of the findings from the four layers added by `extended`, including `L-ENRICH`, only a confirmed claim can make the verdict `NEEDS_FIX`; adversarial, security, and enrichment findings are informational. A document `FAIL` makes the verdict `NEEDS_FIX` in every profile, and a project-check `FAIL` does so in the profiles that run `L-PROJECT` (`standard` and `extended`).
 
 ## 9. Project checks
 

@@ -12,11 +12,11 @@ English: [ADOPTION.md](ADOPTION.md)
 2. リポジトリに `.claude/docaudit.json` を作り（第 4 節）、commit する。
 3. `/docaudit:audit --full` を実行する。公開された report を読み、指摘された文書を直す。
 4. run が `CONSISTENT` で終わるまで `/docaudit:audit --full` を繰り返す。その run が最初の anchor を書く。`NEEDS_FIX` が文書判定だけで止まる場合は `/docaudit:audit --full --accept-baseline` で baseline を受理し、以後は incremental にできる。切れたローカルリンク、失敗した project check、その他の文書判定以外の blocking は受理されないため、report の所見を先に直す。
-5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書だけを判定し、有効な `L-PROJECT` のチェックは corpus 全体を調べる。
+5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書を判定し、`changes.regressionRecheck` が有効なら、この profile で最新の判定が `FAIL` の文書も判定する。有効な組み込み `L-PROJECT` チェックは、影響文書だけに限らず corpus の文書を調べる。
 
 1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
 
-この版に更新する前に、前の版が開いたままにした run（`.claude/state/docaudit/run-open.json` があり、`state` が `closed` でない状態）を、前の版の engine で閉じてください。最後まで resume するか、`resume <runId> --abandon` を実行します。開いたままの run をこの版で resume すると、`REFUSED backend-mismatch` で終わります。
+この版に更新する前に、前の版が開いたままにした run（`.claude/state/docaudit/run-open.json` があり、`state` が `closed` でない状態）を、前の版の engine で閉じてください。最後まで resume するか、`resume <runId> --abandon` を実行します。封印済みの `manifest` に記録された backend と model が、この版の既定から解決した値と異なる場合、gate の backend 判定は `REFUSED backend-mismatch` を返します。
 
 ## 2. 考え方
 
@@ -39,11 +39,11 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | git | git が差分とスナップショットを提供します。Claude Code が必要なのは `/docaudit:audit` の skill と Claude Code agents の backend です。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動きます（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層はmodel を呼ぶときは Codex を使います（第 8 節）。 |
 | agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
-リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、report の置き場所と state ディレクトリは最初の run で作られます。
+リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、state ディレクトリは engine が run を開くとき、または `migrate` 中に作ります。report のディレクトリと file は第 4 節の `report.path` を参照してください。
 
 ## 4. 設定を書く
 
@@ -63,7 +63,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 `impact.map` は `{"source": <glob>, "docs": [<path>, ...]}` の並びです。変更された file が `source` に一致すると、列挙された文書すべてが影響対象になります。役に立つ対応表にする規則は 2 つです。
 
 - **ディレクトリではなく責務で対応付ける。** デプロイ手順を説明する文書は、置き場所を問わず、デプロイ script とそれが引用する設定 file から対応付けます。
-- **広い 1 項目より、小さい複数項目。** すべての文書を列挙した `src/**` 1 項目だけだと、どんな変更でも corpus 全体を監査することになり、run は `impact.maxImpactedDocs` に達して `undecided impact-limit` で終わります。
+- **広い 1 項目より、小さい複数項目。** corpus 内の全文書を列挙した `src/**` の 1 項目は、変更された path が `src/**` に一致したときにそれらの文書を影響対象にします。影響対象となった corpus 内の文書の総数が `impact.maxImpactedDocs` を超えると、run は `undecided impact-limit` で終わります。
 
 `impact.ssotSources` は、ある値の唯一の情報源になる file（版 file、port 一覧など）について対応表と同じように働きます。情報源の変更は、それを引用する文書に常に影響します。
 
@@ -120,7 +120,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 - `--backend` も `--ask-backend` もないとき（素のコマンド、または上の最後の場合）、engine は Codex、agy、Claude Code の agent の順で最初に使える backend を取ります。したがって、agy は使えるが Codex が動かない環境では、主担当が Claude Code の agent から agy に変わります。Claude Code の agent を使い続けるには `--backend claude` を付けます。
 - 選択は run に書かれる（`run-options` 記録と `capability.json` の `backendSelection`）ので、`resume` でも同じ backend・同じ Fast 設定になります。
 
-Codex backend は model `gpt-6-luna` を reasoning effort `xhigh` で動かし、Fast では `-c service_tier=priority` が加わります。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6-luna` を使えないと、呼び出しが失敗して文書は 1 件も判定されず、run は `undecided backend-failed` で終わります。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
+Codex backend は model `gpt-6-luna` を reasoning effort `xhigh` で動かし、Fast では `-c service_tier=priority` が加わります。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6-luna` を使えず、影響文書がある場合は、呼び出しが失敗して文書の判定はなく、run は `undecided backend-failed` で終わります。影響文書が 0 件なら model は呼び出されません。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
 
 Claude Code の agent backend は判定役の agent `docaudit:doc-impact-verifier` を model `claude-sonnet-5-5`、effort `high` で動かします。
 
@@ -173,7 +173,7 @@ agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します�
 | `agy-version-failed` | `agy --version` が失敗した、または 20 秒を超えた |
 | `agy-models-timeout` | `agy models` が 30 秒を超えた |
 | `agy-models-failed` | `agy models` が失敗した、または出力を読めなかった |
-| `agy-model-missing` | `agy models` の出力に `gemini-3.8-flash-medium` がない |
+| `agy-model-missing` | `agy models` の出力の先頭 1 MiB を空白で区切った語に `gemini-3.8-flash-medium` がない |
 
 監査対象のリポジトリも調べ、`agyRepoBlock` に記録します。リポジトリに `.gemini/antigravity-cli` がある場合（中身は問いません。先に調べます）は `agy-repo-settings-present`、最上位に `.agents` がある場合は `agy-workspace-customizations` です。workspace の設定や hook は、リポジトリ自身の内容から command を実行でき、道具を許可することもできるため、そのようなリポジトリでは agy を使いません。
 
@@ -226,11 +226,11 @@ skill は前の session から残った run を回復しません。手作業か
 |---|---|---|
 | `focused` | `L-SCOPE`・`L-DOC` | 第 7 節で選んだ、または既定になった backend |
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
-| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動き、`L-ENRICH` はモデルを呼ばない |
+| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層はmodel を呼ぶときは Codex を使い、`L-ENRICH` はモデルを呼ばない |
 
 `extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 
-`extended` では、adversarial 層が影響を受けた文書ごとに根拠付きの矛盾を求め、security 層が文書化された手順・設定・秘密情報の扱い・権限を run ごとに 1 回レビューし、claim 層が adversarial の `FAIL` をひとつずつリポジトリと照合します。この 4 層の所見のうち verdict を `NEEDS_FIX` にできるのは confirmed な claim だけで、adversarial と security の所見は情報提供です。文書の `FAIL` はどの profile でも verdict を `NEEDS_FIX` にし、project check の `FAIL` は `L-PROJECT` を実行する profile（`standard`・`extended`）で `NEEDS_FIX` にします。
+`extended` では、adversarial 層が影響を受けた文書ごとに根拠付きの矛盾を求め、security 層が文書化された手順・設定・秘密情報の扱い・権限を run ごとに 1 回レビューし、claim 層が adversarial の `FAIL` をひとつずつリポジトリと照合します。`extended` が加える 4 層（`L-ENRICH` を含む）の所見のうち、verdict を `NEEDS_FIX` にできるのは confirmed な claim だけで、adversarial・security・enrich の所見は情報提供です。文書の `FAIL` はどの profile でも verdict を `NEEDS_FIX` にし、project check の `FAIL` は `L-PROJECT` を実行する profile（`standard`・`extended`）で `NEEDS_FIX` にします。
 
 ## 9. プロジェクトチェック
 
