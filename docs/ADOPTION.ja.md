@@ -39,11 +39,11 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | git | git が差分とスナップショットを提供します。Claude Code が必要なのは `/docaudit:audit` の skill と Claude Code agents の backend です。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層はmodel を呼ぶときは Codex を使います（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は model を呼ぶときは Codex を使います（第 8 節）。 |
 | agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
-リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、state ディレクトリは engine が run を開くとき、または `migrate` 中に作ります。report のディレクトリと file は第 4 節の `report.path` を参照してください。
+リポジトリ側に必要なのは設定 file だけです。`corpus.docGlobs` が選ぶ Markdown 文書は tree 内のどこにあってもよく、state ディレクトリは、必要になったときに engine が自分で作ります（例えば run を開くときや `migrate` を行うとき）。report のディレクトリと file は第 4 節の `report.path` を参照してください。
 
 ## 4. 設定を書く
 
@@ -226,7 +226,7 @@ skill は前の session から残った run を回復しません。手作業か
 |---|---|---|
 | `focused` | `L-SCOPE`・`L-DOC` | 第 7 節で選んだ、または既定になった backend |
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
-| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層はmodel を呼ぶときは Codex を使い、`L-ENRICH` はモデルを呼ばない |
+| `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は model を呼ぶときは Codex を使い、`L-ENRICH` はモデルを呼ばない |
 
 `extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 

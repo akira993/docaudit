@@ -43,7 +43,7 @@ Document verification is performed by a backend. Three exist: the Codex CLI, the
 | agy CLI (optional) | Used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file (section 7, "The agy backend"). |
 | Node.js (optional) | Only for running the repository's own test suite. |
 
-A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the engine creates the state directory when it opens a run or during `migrate`; see section 4's `report.path` for the report directory and file.
+A repository needs nothing beyond the configuration file. The Markdown documents that `corpus.docGlobs` selects can be anywhere in the tree; the engine creates the state directory when needed, for example when opening a run or running `migrate`; see section 4's `report.path` for the report directory and file.
 
 ## 4. Write the configuration
 
