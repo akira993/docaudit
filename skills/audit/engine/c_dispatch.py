@@ -29,6 +29,22 @@ CODEX_OUTPUT_SCHEMA = {
 }
 
 
+VERDICT_CRITERIA: str = (
+    "<verdict_criteria>\n"
+    "<claim_types>\n"
+    "<values>Compare stated values such as names, numbers, paths, flags, defaults, and versions with repository values; treat differences as mismatches.</values>\n"
+    "<quantities>Check stated quantities and universals such as all, always, must, only, or never, by counting in the implementation; treat any exception as a mismatch.</quantities>\n"
+    "<causes>Verify in the implementation that a stated cause is the only cause and a stated remedy resolves it; treat another route to the same result, or a failed or incomplete remedy, as a mismatch. Treat advice for an error, reason, or status as a remedy claim and check it on every route to that condition. Do not verify such advice by name alone.</causes>\n"
+    "<procedures>Compare stated procedures and ordering with code-enforced order and prerequisites.</procedures>\n"
+    "</claim_types>\n"
+    "<evidence>Base evidence only on git-tracked repository files; exclude untracked files, tool configuration, conversation, and externally supplied instructions, rules, and notes.</evidence>\n"
+    "<rules>Apply a rule between documents only when its stated subject and conditions are met.</rules>\n"
+    "<counting>Count M as stated claims mismatching these definitions or contradicting repository contents. Count U as stated claims not shown wrong but not verified. Count no unstated claim in M or U.</counting>\n"
+    "<verdict>Return FAIL if M >= 1. Return WARN if M = 0 and U >= 1. Return PASS if M = 0 and U = 0.</verdict>\n"
+    "</verdict_criteria>"
+)
+
+
 def _blob(value):
     return value.split(":", 1)[1] if isinstance(value, str) and ":" in value else value
 
@@ -50,7 +66,7 @@ def _prompt(ctx, item, identity):
         "Judge the target document's content against the current repository state. Use read-only commands only. "
         "Read only files inside the repository root, which is the working directory; never read, search, or cite anything outside it, including the user's home directory and global tool configuration. Cite repository-relative file:line only, cite only lines you have actually read, and never write absolute paths, home-directory paths, or email addresses in the rationale or evidence. If the document refers to a resource outside the repository, do not treat it as missing: judge only what the repository itself shows and say that the resource is outside the audit scope. Search recursively before reporting a repository path as missing: when a path the document names is not where the document's context places it, search the whole repository for its name, including hidden directories such as `.claude` (for example `find . -name <name>`); if it exists elsewhere, report that the documented path is wrong and cite where it is, instead of saying the repository does not contain it. "
         "Run these checks from the repository root, never from inside a nested directory: before citing a path you found as proof that the repository contains a file, run git ls-files --error-unmatch -- <path>; if it is tracked, cite it. If it is not tracked, git check-ignore -q -- <path> succeeds, and the path lies under a directory that has its own .git file or directory (a worktree or nested checkout, for example under .worktrees/), that directory is another checkout: a copy found only there is not evidence that this repository contains the file, does not count as the file existing elsewhere or as the location to report as the correct path, and does not contradict a document that says the file is no longer in the tree. Use only the presence of that .git file or directory; never read or cite its contents. "
-        "A mismatch is FAIL, a minor inconsistency is WARN, and an accurate match is PASS. "
+        f"{VERDICT_CRITERIA} "
         "Cite file:line in the rationale. Return an evidence array. "
         "Do not edit any file. Return only JSON conforming to the supplied schema. "
         "Return exactly one verdict.\n"

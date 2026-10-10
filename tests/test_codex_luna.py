@@ -19,7 +19,7 @@ from skills.audit.engine import c_codex, c_dispatch, c_optional, deps
 
 LUNA = "gpt-6-luna"
 AGY_PRIMARY = "agy:gemini-3.8-flash-medium"
-WORKFLOW_PRIMARY = "workflow:claude-haiku-5-5"
+WORKFLOW_PRIMARY = "workflow:claude-sonnet-5-5"
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["value"],
@@ -236,7 +236,7 @@ class ExtendedLayerTests(unittest.TestCase):
                 result, argvs = self._run(layer_id, WORKFLOW_PRIMARY, dict(CODEX_UP))
                 self.assertEqual(len(argvs), 1, (result.status, result.reason))
                 self.assertEqual(_flag_value(argvs[0], "-m"), LUNA)
-                self.assertNotIn("haiku", argvs[0])
+                self.assertNotIn("sonnet", argvs[0])
                 self.assertEqual((result.status, result.reason), ("complete", None))
                 for kind, data in self.records:
                     self.assertEqual((kind, data["model"]), ("model-call", "codex:" + LUNA))

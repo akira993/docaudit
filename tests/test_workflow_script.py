@@ -92,7 +92,7 @@ class WorkflowScriptTests(unittest.TestCase):
     def test_agent_definition_and_launcher_contract(self):
         agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
         source = (self.root / "workflows" / "docaudit-verify.js").read_text(encoding="utf-8")
-        self.assertIn("model: claude-haiku-5-5", agent)
+        self.assertIn("model: claude-sonnet-5-5", agent)
         self.assertIn("effort: high", agent)
         tools = next(line for line in agent.splitlines() if line.startswith("tools:"))
         self.assertEqual(tools, "tools: Read, Grep, Glob, Bash")
