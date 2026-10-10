@@ -12,7 +12,7 @@ Commands in this guide use the engine path of the skills-dir install, `~/.claude
 2. In the repository, create `.claude/docaudit.json` (section 4) and commit it.
 3. Run `/docaudit:audit --full`. Read the report it publishes and fix the documents it flags.
 4. Repeat `/docaudit:audit --full` until the run ends `CONSISTENT`. That run writes the first anchor. If `NEEDS_FIX` is blocked only by document judgements, `/docaudit:audit --full --accept-baseline` accepts the baseline and enables later incremental runs. It cannot accept broken local links, failed project checks, or any other non-document blocking finding; fix those findings in the report first.
-5. From then on run `/docaudit:audit` after changes. Only the documents impacted by what changed are verified.
+5. From then on run `/docaudit:audit` after changes. Only the documents impacted by what changed are judged; enabled `L-PROJECT` checks still scan the whole corpus.
 
 Before upgrading to 1.0.1, close every open run with `resume <runId> --abandon`. If an unclosed run is resumed in 1.0.1, it ends `REFUSED seal-drift` when its old scope includes a path under `.mdq/`, or `REFUSED worktree-modified` when `.mdq/` appears only in its old working-tree snapshot. In either case, run again to recover.
 
@@ -37,7 +37,7 @@ Document verification is performed by a backend. Three exist: the Codex CLI, the
 | requirement | notes |
 |---|---|
 | macOS or Linux | `projectChecks` run only on macOS (they use `sandbox-exec`). |
-| Claude Code and git | The skill runs inside Claude Code; git supplies the diff and the snapshot. |
+| git | git supplies the diff and the snapshot. Claude Code is required for the `/docaudit:audit` skill and the Claude Code agents backend. |
 | Python 3.12 or newer | The engine uses only the standard library. |
 | Codex CLI (optional) | Used when `codex` is on `PATH`, `codex --version` and `codex exec --help` work, and `auth.json` in the Codex home is a readable regular file (symlinks and other non-regular files are rejected). The Codex account must be able to use the model `gpt-6-luna` (section 7). The `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` layers of the `extended` profile always run on Codex (section 8). |
 | agy CLI (optional) | Used only with a dedicated, signed-in home directory named by `AGY_HOME` and a tool-guard hook file (section 7, "The agy backend"). |
@@ -52,7 +52,7 @@ Create `.claude/docaudit.json`. Start from the minimal example in the README and
 1. `corpus.docGlobs`: the documents to audit. Exclude generated or vendored documents with `corpus.excludeDocGlobs`.
 2. `changes.diffGlobs`: the files whose changes should trigger an audit. Usually the source, configuration, and documentation directories together.
 3. `impact.map`: at least one entry per source area (section 5).
-4. `report.path`: a Markdown path whose basename has a nonempty prefix before exactly one `<YYYY-MM-DD>`, and may contain `[_NN]` once anywhere in the basename (its position relative to `<YYYY-MM-DD>` does not matter), for example `reports/audit_<YYYY-MM-DD>[_NN].md`. The directory is created when the first report is published. Reports are never overwritten; a second run on the same day gets `_02`.
+4. `report.path`: a Markdown path ending in `.md` with exactly one `<YYYY-MM-DD>` and at most one `[_NN]` anywhere in the path; the basename must have nonempty text before the date when the date is in the basename, or be nonempty when the date is in a directory. For example, `reports/audit_<YYYY-MM-DD>[_NN].md`. The report directory is created during run preparation after retrieval, even if no report is published; a run refused earlier does not create it. Reports are never overwritten; when a name exists, the next report uses the first available suffix from `_02` at `[_NN]` if present, or immediately after the date otherwise.
 
 Leave `enabledLayers` at `["L-SCOPE", "L-DOC", "L-PROJECT"]` unless you intend to run the `extended` profile (section 8), and keep `documentChecks.frontMatterFields` and `documentChecks.indexFiles` empty until your documents follow those conventions. Unknown keys are rejected, so a typo fails validation with `config-invalid:<detail>` instead of being ignored.
 
@@ -163,7 +163,7 @@ agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`.
 | `agy-home-unset` | `AGY_HOME` is not set or is empty |
 | `agy-home-missing` | `AGY_HOME` is not an existing directory |
 | `agy-not-installed` | no executable `agy` was found on `PATH` |
-| `agy-settings-unreadable` | `settings.json` exists but cannot be read, is not a JSON object, or has a `permissions` that is not an object |
+| `agy-settings-unreadable` | `settings.json` exists but cannot be read, is not a JSON object, or has `permissions` set to neither `null` nor an object |
 | `agy-permissions-present` | `settings.json` has a non-empty `permissions.allow` |
 | `agy-settings-hooks-present` | `settings.json` has a `hooks` key |
 | `agy-tool-hook-missing` | `.gemini/config/hooks.json` does not exist |
@@ -206,7 +206,7 @@ A tool that the guard hook denies is not a failure: the tool does not run and ag
 
 - Anchors are kept per profile under `.claude/state/docaudit/anchors/`.
 - The first anchor of a profile is written by the first full run of that profile that ends `CONSISTENT`. Until then, an incremental run of that profile ends `undecided anchor-missing`, so keep using `--full`.
-- A full `NEEDS_FIX` run with `--accept-baseline` also writes its first anchor when every blocking item is an `L-DOC` judgement and its report was published. A known FAIL document is then not rechecked only when it is not impacted by `impact.map`, `ssotSources`, or heuristics and `changes.regressionRecheck` is disabled. Set `changes.regressionRecheck: true` to recheck the profile's latest FAIL documents each time; they count toward `impact.maxImpactedDocs`, stop the whole run with `impact-limit` when exceeded, and do not leave that set until they pass. Non-document blocking findings are never accepted: `focused` produces none; in `standard` and `extended` they are broken links and failed project checks; `extended` adds only confirmed claims, while security and adversarial findings are non-blocking.
+- A full `NEEDS_FIX` run with `--accept-baseline` also writes its first anchor when every blocking item is an `L-DOC` judgement and its report was published. A known FAIL document is then not rechecked only when the document itself has not changed, is not impacted by `impact.map`, `ssotSources`, or heuristics, and `changes.regressionRecheck` is disabled. Set `changes.regressionRecheck: true` to recheck the profile's latest FAIL documents each time; they count toward `impact.maxImpactedDocs`, stop the whole run with `impact-limit` when exceeded, and leave that set when their latest judgement is PASS or WARN. Non-document blocking findings are never accepted: `focused` produces none; in `standard` and `extended` they are broken links and failed project checks; `extended` adds only confirmed claims, while security and adversarial findings are non-blocking.
 - Every later run of the profile that ends `CONSISTENT` advances the anchor, and a later full `NEEDS_FIX` run accepted with `--accept-baseline` under the same condition as above advances it the same way. Any other `NEEDS_FIX` run, and every `undecided` or `REFUSED` run, leaves the anchor unchanged, so the next incremental run measures the same changes again, plus anything new.
 - Switching profiles starts a new lifecycle: a `focused` anchor does not serve a `standard` run.
 
@@ -234,7 +234,7 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 
 ## 9. Project checks
 
-`L-PROJECT` always runs four read-only checks over the audited documents: required front-matter fields (WARN), local Markdown links (a missing target is a blocking FAIL), path-like backtick tokens that point at nothing (WARN), and documents that no other document or index file links to (WARN). `documentChecks.layerGlobs` removes matching documents from a check, for example to exempt generated indexes from the orphan check. When the sealed corpus has only one document, the orphan check does not run and records `orphan: skipped`.
+`L-PROJECT` applies four kinds of read-only checks over the sealed corpus: required front-matter fields (WARN), local Markdown links (a missing target is a blocking FAIL), path-like backtick tokens that point at nothing (WARN), and documents that no other document or index file links to (WARN). `documentChecks.layerGlobs` removes matching documents from a check, for example to exempt generated indexes from the orphan check. When the sealed corpus has only one document, the orphan check does not run and records `orphan: skipped`.
 
 `projectChecks` adds your own commands. Each entry names a check ID, an `argv`, a timeout, and optionally a working directory. The command runs on macOS inside a `sandbox-exec` profile that forbids writes outside the private temporary directory (writing to `/dev/null` is the only other permitted write), and must print a JSON object with a `findings` array, each finding having `id`, `summary`, `severity` (`INFO`, `WARN`, or `FAIL`), and optionally `path`. A `FAIL` finding is blocking: the run ends `NEEDS_FIX` even when every document passed. A nonzero exit, a timeout, or invalid output is itself a blocking `FAIL` finding. On Linux leave `projectChecks` empty: a non-empty list ends the run `undecided sandbox-unavailable`.
 

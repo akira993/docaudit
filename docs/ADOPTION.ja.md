@@ -12,7 +12,7 @@ English: [ADOPTION.md](ADOPTION.md)
 2. リポジトリに `.claude/docaudit.json` を作り（第 4 節）、commit する。
 3. `/docaudit:audit --full` を実行する。公開された report を読み、指摘された文書を直す。
 4. run が `CONSISTENT` で終わるまで `/docaudit:audit --full` を繰り返す。その run が最初の anchor を書く。`NEEDS_FIX` が文書判定だけで止まる場合は `/docaudit:audit --full --accept-baseline` で baseline を受理し、以後は incremental にできる。切れたローカルリンク、失敗した project check、その他の文書判定以外の blocking は受理されないため、report の所見を先に直す。
-5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書だけが検証される。
+5. 以後は変更のたびに `/docaudit:audit` を実行する。変更の影響を受ける文書だけを判定し、有効な `L-PROJECT` のチェックは corpus 全体を調べる。
 
 1.0.1 へ更新する前に、open な run を `resume <runId> --abandon` で閉じてください。閉じずに 1.0.1 で再開した run は、旧 scope に `.mdq/` 配下の path が含まれていれば `REFUSED seal-drift`、`.mdq/` が旧い作業木スナップショットだけに含まれていれば `REFUSED worktree-modified` になります。いずれも再実行で回復します。
 
@@ -37,7 +37,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | 要件 | 補足 |
 |---|---|
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
-| Claude Code と git | skill は Claude Code の中で動き、git が差分とスナップショットを提供します。 |
+| git | git が差分とスナップショットを提供します。Claude Code が必要なのは `/docaudit:audit` の skill と Claude Code agents の backend です。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
 | Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動きます（第 8 節）。 |
 | agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
@@ -52,7 +52,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 1. `corpus.docGlobs`: 監査する文書。生成物や取り込んだ文書は `corpus.excludeDocGlobs` で除外します。
 2. `changes.diffGlobs`: 変更が監査を起動する file。通常はソース・設定・文書のディレクトリをまとめて指定します。
 3. `impact.map`: ソース領域ごとに最低 1 項目（第 5 節）。
-4. `report.path`: basename が空でない接頭辞に続けて `<YYYY-MM-DD>` をちょうど 1 つ持ち、`[_NN]` を basename 内の任意の位置に高々 1 回置ける（`<YYYY-MM-DD>` との前後関係は問わない）Markdown の path。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。ディレクトリは最初の report 公開時に作られます。report は上書きされず、同じ日の 2 回目は `_02` が付きます。
+4. `report.path`: `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む Markdown の path。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。report のディレクトリは retrieval 後の run 準備中に作られ、report を公開せずに終わっても残ります。それより前に拒否された run では作られません。report は上書きされず、同じ名前があれば `_02` から最初の空き番号を、`[_NN]` がある位置か、無ければ日付の直後に付けます。
 
 `extended` profile を使う予定がなければ `enabledLayers` は `["L-SCOPE", "L-DOC", "L-PROJECT"]` のままにし（第 8 節）、`documentChecks.frontMatterFields` と `documentChecks.indexFiles` は文書がその規約に従うようになるまで空にしておきます。未知のキーは拒否されるので、綴り間違いは無視されずに `config-invalid:<detail>` として検証に失敗します。
 
@@ -163,7 +163,7 @@ agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します�
 | `agy-home-unset` | `AGY_HOME` が未設定または空 |
 | `agy-home-missing` | `AGY_HOME` が存在するディレクトリではない |
 | `agy-not-installed` | `PATH` に実行できる `agy` がない |
-| `agy-settings-unreadable` | `settings.json` があるが読めない、JSON object でない、または `permissions` が object でない |
+| `agy-settings-unreadable` | `settings.json` があるが読めない、JSON object でない、または `permissions` が `null` でも object でもない |
 | `agy-permissions-present` | `settings.json` に空でない `permissions.allow` がある |
 | `agy-settings-hooks-present` | `settings.json` に `hooks` という key がある |
 | `agy-tool-hook-missing` | `.gemini/config/hooks.json` が無い |
@@ -206,7 +206,7 @@ hook が拒否した道具は失敗ではありません。道具は実行され
 
 - anchor は profile ごとに `.claude/state/docaudit/anchors/` に保持されます。
 - profile の最初の anchor は、その profile の full の run が `CONSISTENT` で終わったときに書かれます。それまで、その profile の incremental な run は `undecided anchor-missing` で終わるので、`--full` を使い続けてください。
-- `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、PASS になるまで集合は縮まない。文書判定以外の blocking は受理されない。`focused` では生じず、`standard` と `extended` では切れたリンクと失敗した project check がそれにあたり、`extended` で加わるのは confirmed な claim だけである。security と adversarial の所見は non-blocking である。
+- `--accept-baseline` 付き full の `NEEDS_FIX` も、blocking がすべて `L-DOC` judgement で report 公開に成功した場合は最初の anchor を書く。既知 FAIL 文書は、その文書自身が変更されておらず、`impact.map`・`ssotSources`・heuristic により影響対象に入らず、`changes.regressionRecheck` も無効な場合にだけ受理後の再判定対象外となる。`changes.regressionRecheck: true` を使うと profile の最新 FAIL 文書を毎回再判定できるが、その件数は `impact.maxImpactedDocs` に数えられ、超えると run 全体が `impact-limit` で止まり、最新の判定が PASS または WARN になると集合から外れる。文書判定以外の blocking は受理されない。`focused` では生じず、`standard` と `extended` では切れたリンクと失敗した project check がそれにあたり、`extended` で加わるのは confirmed な claim だけである。security と adversarial の所見は non-blocking である。
 - 以後、その profile の run が `CONSISTENT` で終わるたびに anchor が前進し、上と同じ条件で `--accept-baseline` により受理された full の `NEEDS_FIX` の run も同様に前進させます。それ以外の `NEEDS_FIX` の run、および `undecided`・`REFUSED` の run は anchor を動かさないので、次の incremental な run は同じ変更に新しい変更を加えて再び測ります。
 - profile を切り替えると新しいライフサイクルが始まります。`focused` の anchor は `standard` の run には使われません。
 
@@ -234,7 +234,7 @@ skill は前の session から残った run を回復しません。手作業か
 
 ## 9. プロジェクトチェック
 
-`L-PROJECT` は監査対象の文書に対して読み取り専用のチェックを常に 4 つ実行します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
+`L-PROJECT` は封印 corpus に 4 種類の読み取り専用チェックを適用します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
 
 `projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、`/dev/null` を除き private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。Linux では `projectChecks` を空にしてください。空でないと run は `undecided sandbox-unavailable` で終わります。
 

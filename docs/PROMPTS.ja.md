@@ -62,7 +62,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 同じ migrate コマンドを --dry-run なしで実行して、できあがった .claude/docaudit.json を見せて。その後 /docaudit:audit --full を実行して。
 ```
 
-期待: dry run は何も書かず、対象が無いか変換結果とバイト列が同じなら `convertible`、同じ legacy 入力の移行完了が記録済みなら `unchanged` で終了値 0。終了値 1 は `not-convertible` で、結果の `reason` に理由が出ます（バイト列が異なる既存対象を含む）。本番の移行は完了を記録し、`.claude/docaudit.json` は対象が無いときだけ書きます（バイト列が同じ既存対象はそのまま残します）。移行完了後に同じ legacy 入力で実行すると、run が開いていても `unchanged` を報告して何も書きません。それ以外では、run が開いている間（`migration-run-open`）、既存対象のバイト列が変換結果と異なる場合（`migration-target-exists`）、移行完了後に legacy 入力が変わった場合（`migration-input-changed`）に拒否します。
+期待: dry run は何も書かず、対象が無いか変換結果とバイト列が同じなら `convertible`、同じ legacy 入力の移行完了が記録済みなら `unchanged` で終了値 0。終了値 1 は `not-convertible` で、結果の `reason` に理由が出ます（バイト列が異なる既存対象を含む）。本番の移行は完了を記録し、`.claude/docaudit.json` は対象が無いときだけ書きます（バイト列が同じ既存対象はそのまま残します）。移行完了後に同じ legacy 入力で実行すると、run が開いていても `unchanged` を報告して何も書きません。それ以外では、run が開いている間（`migration-run-open`）、既存対象のバイト列が変換結果と異なる場合（`migration-target-exists`）、legacy 入力が移行完了時と異なるか、事前確認から本番の state mutex 内での読み直しまでに変わった場合（`migration-input-changed`）に拒否します。
 
 ## 7. undecided や REFUSED の結果を理解する
 
@@ -77,7 +77,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 skill は前の session から残った run を回復しないので、明示的に行います。
 
 ```
-前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が失敗し続けるなら、同じコマンドに --abandon を付けて放棄し、理由を教えて。
+前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が `resume-in-progress` で拒否されたら別の process が終わるのを待って再度再開して。それ以外の理由で失敗し続ける場合に同じコマンドに --abandon を付けて放棄し、理由を教えて。
 ```
 
 期待: run が `closed` に到達し、次の監査を始められます。放棄は verdict なしで run を closed として記録し（`undecided abandoned`）、anchor は動きません。

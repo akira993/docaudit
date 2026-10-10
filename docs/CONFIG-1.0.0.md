@@ -170,9 +170,10 @@ Rejections before the mutex write nothing; after mutex acquisition the state
 root and lock file can remain. A completed-match check precedes the active-run
 check, so an `unchanged` conversion is write-free even while a run is open.
 
-`--dry-run` performs only read-only preflight and completion checks. It also
-checks the target config: identical prepared bytes are convertible, while a
-different or unreadable target is `migration-target-exists`. It creates no
+`--dry-run` performs only read-only preflight and completion checks. Unless
+the status is `unchanged`, it checks the target config: identical prepared
+bytes are convertible; a different or unreadable target is
+`migration-target-exists`. It creates no
 state root, takes no mutex, and writes nothing. It reports `convertible`,
 `not-convertible`, or `unchanged` with `config`, `counts`, `inputs`,
 `anchor: {"migrated":false,"reason":"policy"}`, and `runOpen`. An active run
@@ -210,9 +211,11 @@ different name, then begin a new history file.
 
 ## Report templates and publication
 
-`report.path` ends in `.md`, contains exactly one `<YYYY-MM-DD>`, at most one
-`[_NN]`, and has a nonempty basename prefix before the date. Invalid values are
-`config-invalid:report.path`. The date comes from the run ID; collisions receive
+`report.path` ends in `.md` and contains exactly one `<YYYY-MM-DD>` and at most
+one `[_NN]` across the full path. If the date is in the basename, the text
+before it must be nonempty; if the date is in a directory, the entire basename
+must be nonempty. Invalid values are `config-invalid:report.path`. The date
+comes from the run ID; collisions receive
 `_02`, `_03`, and so on. Publication never replaces an existing file and returns
 a receipt with relative path, SHA-256, and publication time.
 
@@ -623,8 +626,9 @@ has no block. The probe checks, in this order, and records the first reason that
 applies in `agyReason`: `agy-home-unset` (no `AGY_HOME`), `agy-home-missing`
 (`AGY_HOME` is not an existing directory), `agy-not-installed` (no executable
 `agy` on `PATH`), then, in `<AGY_HOME>/.gemini/antigravity-cli/settings.json`,
-`agy-settings-unreadable` (unreadable, not a JSON object, or a `permissions`
-that is not an object), `agy-permissions-present` (a non-empty
+`agy-settings-unreadable` (unreadable, not a JSON object, or a
+`permissions` value that is neither `null` nor an object),
+`agy-permissions-present` (a non-empty
 `permissions.allow`), and `agy-settings-hooks-present` (a `hooks` key); a
 missing `settings.json` is accepted. Next come `agy-tool-hook-missing` (no
 `<AGY_HOME>/.gemini/config/hooks.json`) and `agy-tool-hook-mismatch` (the file is
@@ -820,7 +824,8 @@ symbolic link before copying makes the run undecided with reason
 With the mirror as its working directory, indexing runs `mdq index --root .
 --db ../index.sqlite --lang ja-jp`. Every `mdq` child receives only
 `PATH`, `HOME`, `LANG`, `LC_ALL`, and `TMPDIR` when present, plus
-`PYTHONUTF8=1`; it has a 120-second limit and process-group cleanup. Health
+`PYTHONUTF8=1`; `mdq index` has a 120-second limit and `mdq stats` a
+20-second limit, with process-group cleanup. Health
 requires `mdq stats --db <index database> --lang ja-jp` to report the sealed
 corpus file count and at least one chunk, and the first word of a heading from
 `mdq list --db <index database> --lang ja-jp` to produce at least one `mdq
