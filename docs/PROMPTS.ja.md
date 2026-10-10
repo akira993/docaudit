@@ -30,7 +30,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 直前の commit で file を変更した。/docaudit:audit を実行して、影響を受けた文書・verdict・report の path を教えて。
 ```
 
-期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更の影響文書が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も常に数えられます。
+期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更の影響文書が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も、削除されたものを除き、常に数えられます。
 
 ## 4. focused profile での素早い確認
 
@@ -48,7 +48,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、レビュー層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 

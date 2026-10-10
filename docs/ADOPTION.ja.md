@@ -26,7 +26,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 
 - **corpus（対象文書）。** `corpus.docGlobs` が監査対象の文書を選びます。git が無視する file は、`corpus.respectGitignore` を false にしない限り対象外です。
 - **changes（変更）。** `changes.diffGlobs` が、変更されたら監査を起動する file を選びます。incremental な run は、同じ profile の最後に受理された run と作業木を比べます。
-- **impact map（影響対応表）。** `impact.map` が、変更されたソースとそれを説明する文書を結び付けます。変更された file・対応表・唯一情報源の項目・（設定した場合は）file 名ヒューリスティクスが影響を受ける文書の集合を決め、`impact.maxImpactedDocs` がその上限になります。
+- **impact map（影響対応表）。** `impact.map` が、変更されたソースとそれを説明する文書を結び付けます。変更された file・対応表・唯一情報源の項目・（設定した場合は）file 名ヒューリスティクス・（有効なときは）`changes.regressionRecheck` による前回 FAIL した文書が影響を受ける文書の集合を決め、`impact.maxImpactedDocs` がその上限になります。
 - **層と profile。** run は層（layer）を実行します。`L-SCOPE` は影響集合の計算、`L-DOC` は影響を受けた各文書の検証、`L-PROJECT` は組み込みの文書チェックと `projectChecks` の実行、`L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` は追加のレビュー層です。profile（`focused`・`standard`・`extended`）がどの層を走らせるかを選び、設定の `enabledLayers` がリポジトリとして許可する層を宣言します。
 - **verdict と anchor。** verdict は `CONSISTENT` か `NEEDS_FIX` のどちらかです。`CONSISTENT` の run はその profile の anchor を前進させ、`--accept-baseline` で受理された full の `NEEDS_FIX` の run も同様に anchor を前進させます。次の incremental な run はどちらの場合も、その anchor からの変更を測ります。verdict に到達できない run は理由付きの `undecided`、封印された run の契約が gate の整合性検査に失敗した run は `REFUSED` で終わります。
 
@@ -39,7 +39,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | Claude Code と git | skill は Claude Code の中で動き、git が差分とスナップショットを提供します。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile のレビュー層は常に Codex で動きます（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動きます（第 8 節）。 |
 | agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
@@ -228,7 +228,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `standard`（既定） | focused + `L-PROJECT` | 同上 |
 | `extended` | standard + `L-ENRICH`・`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` | 文書の検証は同じ選択だが、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は常に Codex で動き、`L-ENRICH` はモデルを呼ばない |
 
-`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。レビュー層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
+`extended` は `enabledLayers` が 7 層すべてを列挙しているときだけ選べます。そうでなければ engine は `capability-missing:<layer>` で run を開くことを拒否します（終了値 3）。`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は文書をどの backend で検証していても Codex で動く（Fast を選んでいればそれも適用される）ので、利用可能性検査に合格する Codex が必要です。無ければ `L-CLAIM` が incomplete となり run は `undecided` で終わります。理由は、文書の検証が agy 経由なら `codex-unavailable`、Claude Code の agent 経由なら `workflow-adapter-unavailable` です。影響対象の文書があれば `L-SECURITY` と `L-ADVERSARIAL` も同じ理由で incomplete になり、無ければ呼び出しなしで complete になります。`extended` は Codex CLI が利用可能性検査に合格する環境で使ってください。
 
 `extended` では、adversarial 層が影響を受けた文書ごとに根拠付きの矛盾を求め、security 層が文書化された手順・設定・秘密情報の扱い・権限を run ごとに 1 回レビューし、claim 層が adversarial の `FAIL` をひとつずつリポジトリと照合します。この 4 層の所見のうち verdict を `NEEDS_FIX` にできるのは confirmed な claim だけで、adversarial と security の所見は情報提供です。文書の `FAIL` はどの profile でも verdict を `NEEDS_FIX` にし、project check の `FAIL` は `L-PROJECT` を実行する profile（`standard`・`extended`）で `NEEDS_FIX` にします。
 
@@ -254,7 +254,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、使える agy もなく、Claude Code の中でもない）、または `--backend` で指名した backend を使えない | Codex を install または修復するか、agy を設定する（第 7 節）か、Claude Code の中で実行 |
 | `undecided backend-failed` | 少なくとも 1 件の文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6-luna` を使えない） | 文書の `failure` 記録と `model-call` 記録の理由を確認するか、別の backend を選ぶ |
-| `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | 対応表を絞るか上限を上げるか、`--full` で実行 |
+| `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
 | `undecided corpus-unreadable` | 検証用 mirror の準備中に corpus 内の文書を読めなかった（Claude Code の agent backend） | file を読めるようにする（権限、壊れた symlink）して再実行 |
 | `undecided sandbox-unavailable` | `sandbox-exec` のない環境で `projectChecks` を設定 | Linux では `projectChecks` を空に |
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |

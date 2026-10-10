@@ -30,7 +30,7 @@ Expected: `CONSISTENT` once every document passes and no blocking finding remain
 I changed the files in the last commit. Run /docaudit:audit and tell me which documents were impacted, the verdict, and the report path.
 ```
 
-Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, raise `impact.maxImpactedDocs`, or narrow the routes that add documents (`impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck`); changed documents themselves always count.
+Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, raise `impact.maxImpactedDocs`, or narrow the routes that add documents (`impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck`); changed documents themselves always count unless they were deleted.
 
 ## 4. Quick check with the focused profile
 
@@ -48,7 +48,7 @@ Requires the Codex CLI to pass the availability check and `enabledLayers` to lis
 Run /docaudit:audit --profile extended --full. Report the verdict, then list the adversarial and security findings by severity, and for each confirmed claim show the evidence file and line.
 ```
 
-Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and the review layers run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
+Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
 
 ## 6. Migrate a legacy configuration
 
