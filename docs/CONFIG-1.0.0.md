@@ -20,6 +20,7 @@ segment (a parent-directory reference) or begin with an absolute path.
 | `impact.heuristics` | `{minIdentifierLength: int, excludeBasenames: string[], saturationWarnRatio: number, excludeDocPathTokens: boolean}`; exclusion names are compared case-insensitively | no | omitted |
 | `impact.ssotSources` | `{source: path, docs: path[]}` array | no | `[]` |
 | `report.path` | string template | yes | — |
+| `worktree.tolerateChangesIn` | path string array | no | `[]` |
 | `documentChecks.frontMatterFields` | string array | no | `[]` |
 | `documentChecks.frontMatterOverrides` | `{glob: glob, fields: string[]}` array | no | `[]` |
 | `documentChecks.indexFiles` | path array | no | `[]` |
@@ -28,6 +29,36 @@ segment (a parent-directory reference) or begin with an absolute path.
 
 `enabledLayers` is the only declaration of project capability.  The availability
 of external tools is discovered by the engine rather than configured here.
+
+### Worktree changes made by other tools
+
+The optional `worktree` object accepts only `tolerateChangesIn`, an array of
+repository-relative paths such as `cache/` or `logs/run.log`. A trailing `/`
+names a directory and everything below it; without `/`, the value names one
+exact file. Globs (`*`, `?`, `[`), absolute paths, `..`, `.`, `./`, `//`, and
+empty path components are invalid. The engine does not normalize these values.
+An absent `worktree` object or an empty list keeps the usual worktree rule.
+
+Before opening a run, the engine checks that each listed path is ignored by
+Git, contains no tracked file or sealed corpus document, and neither contains
+nor lies inside the configuration file, state root, or report location. An
+invalid value or failed restriction gives
+`config-invalid:worktree.tolerateChangesIn`; a non-object `worktree` gives
+`config-invalid:worktree`, and an unknown member gives
+`config-invalid:worktree.<member>`. A Git or corpus calculation failure keeps
+its own reason (for example, `git-failed`). These checks also run before a
+not-yet-sealed run is resumed. `docauditSchema` stays `"1.0"`; engines at
+1.2.1 and earlier reject the `worktree` key as `config-invalid:worktree`.
+
+A changed entry is tolerated at the gate only when it lies at or below a
+listed path, is absent from both the sealed corpus and source snapshot, and
+is still ignored by Git. A file added with `git add -f` during the run, or a
+path whose ignore rule disappears, is refused. Failure to ask Git also
+refuses the change. A newly created parent directory of a listed path is
+outside that path and is refused. To avoid a refusal for generated files,
+either list their ignored location in `worktree.tolerateChangesIn` or move
+their output outside the working tree. Listing a location changes only the
+gate's decision; it does not permit the engine to write there.
 
 For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.mdq/` are neither documents nor changed paths from 1.0.1 onward.
 
@@ -299,7 +330,7 @@ owns these files:
 | `report.rendered.md` | validated report bytes before publication |
 | `metrics.json` | final duration and model-call measurements |
 | `retrieval.json` | document-index locations and language for this run |
-| `tree.before.json` | persisted pre-dispatch worktree snapshot for Workflow runs |
+| `tree.before.json` | persisted pre-dispatch worktree snapshot for Workflow runs and for Codex/agy runs with nonempty `worktree.tolerateChangesIn` |
 
 The capability probe is performed once before seal. Its contract version is
 `capability/1.2` and its seventeen fields are `available`, `reason`, `cliVersion`,
@@ -408,24 +439,38 @@ exact request, completion, receipt, and per-document judgement paths. The
 permitted directories are only `requests/`, each numbered generation
 directory, and its `judgements/` directory. Every path is enumerated before
 seal; a glob or an open-ended directory permission is never used. A write
-anywhere else in the repository makes the run `REFUSED worktree-modified`.
+outside the engine's fixed write paths is not permitted. Changes made by
+other tools outside those paths cause `REFUSED worktree-modified` unless they
+meet the listed worktree conditions above.
 
 Atomic and exclusive writes use the deterministic sibling
 `.tmp-<destination-basename>`. A writer removes that path only when it created
 it successfully. State-root temporary files are recovered immediately after a
 lease is acquired. The worktree digest excludes the frozen final and temporary
-write paths, but includes every other entry regardless of Git ignore rules;
-only the repository's top-level `.git/` and `.mdq/` (mdq's index and usage
-records) are excluded. Since 1.0.1 the top-level `.mdq/` is excluded as well;
-1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
+write paths, but records every other entry regardless of Git ignore rules,
+including entries under `worktree.tolerateChangesIn`. Toleration affects the
+gate's decision, not the snapshot. The fixed tool-directory exclusions are the
+repository's top-level `.git/` and, since 1.0.1, `.mdq/` (mdq's index and usage
+records); 1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
 the engine and may grow in later versions.
 
+Within a listed location, a file that disappears during scanning is omitted
+from that snapshot. A file that cannot be read or changes while being read is
+recorded as an unstable entry and classified at the gate as a change, even if
+both snapshots record it as unstable. Listed entries still count toward the
+entry and byte limits for `worktree-too-large`.
+
 Workflow runs atomically persist the canonical pre-dispatch tree snapshot in
-`tree.before.json` with a 64 MiB limit. A later process may reconstruct the
+`tree.before.json` with a 64 MiB limit. Codex and agy runs do the same when
+`worktree.tolerateChangesIn` is nonempty; if that snapshot exceeds the limit,
+the run ends before dispatch as `undecided worktree-too-large`. A later process may reconstruct the
 worktree difference from this file only when its semantic hash equals the
 sealed `treeDigestBefore`. A missing, invalid, oversized, or mismatched snapshot
-is treated like an unavailable difference cache. Codex runs do not write this
-snapshot.
+is treated like an unavailable difference cache. Codex and agy runs with an
+empty list do not write this snapshot. If such a run is resumed in another
+process after the worktree changes, the gate refuses it with an empty
+`worktreeDiff` and no ignored-path guidance; an in-process gate can still list
+the paths and give guidance.
 
 ### Recovering `tmp-conflict`
 
@@ -462,8 +507,11 @@ Gate applies these checks in order:
    resolves the backend again from the sealed `capability.json`, which carries
    `backendSelection` and `agyRepoBlock`, and compares it with the manifest's
    `resolvedBackendModel`, so a selected backend resolves as it did at seal time;
-7. a worktree digest mismatch gives `REFUSED worktree-modified` and lists the
-   differing paths;
+7. worktree changes outside the listed, Git-ignored, unsealed paths give
+   `REFUSED worktree-modified`; `worktreeDiff` lists only those paths. A
+   digest mismatch without a recoverable path difference still refuses with
+   an empty list. If the scan exceeds an entry or byte limit, the outcome is
+   `undecided worktree-too-large`;
 8. an out-of-scope, duplicate, stale-content, or invalid document judgement
    gives `REFUSED judgement-mismatch`;
 9. an incomplete adapter gives outcome `undecided` with its reason, while a
@@ -477,14 +525,25 @@ The verdict object is either
 `{"verdict":"CONSISTENT|NEEDS_FIX|REFUSED","reason":"...","counts":{},"blocking":[],"refusedChecks":[],"gateHash":"..."}`
 or
 `{"outcome":"undecided","reason":"...","counts":{},"blocking":[],"refusedChecks":[],"gateHash":"..."}`.
-`worktreeDiff` is included when applicable. `C-GATE` is the only verdict writer;
+`worktreeDiff` is included when applicable. When at least one path is tolerated,
+`toleratedWorktreeChanges` lists those paths in sorted order, including in a
+mixed refusal. A rule-7 `REFUSED worktree-modified` also has
+`worktreeDiffIgnoredOnly: true` when every refused path is Git-ignored at the
+gate and outside the sealed corpus and snapshot, even with no tolerance setting.
+This flag is absent if Git classification fails or the path difference is
+unavailable. `C-GATE` is the only verdict writer;
 it appends `verdict-intent` before exclusively publishing `verdict.json`.
 
 Pre-gate undecided reasons `backend-unavailable`, `impact-limit`,
 `snapshot-too-large`, `corpus-unreadable`, `git-failed`, and
 `worktree-too-large` do not publish a report or verdict. Gate-time undecided
 outcomes do publish a report. Report rendering shows the REFUSED reason and
-`refusedChecks`, or the undecided reason, under `## 判定`.
+`refusedChecks`, or the undecided reason, under `## 判定`. When paths were
+tolerated, it adds `- 大目に見た作業木の変化: <count> 件` and, if any paths are safe to
+display, `- 大目に見た path（先頭 <k> 件）: <path1>, ...` for up to the first five.
+For `worktreeDiffIgnoredOnly: true`, it adds a guidance line with both
+remedies: list the ignored location in `worktree.tolerateChangesIn` or move the
+output outside the working tree.
 
 The gate refusal reason catalogue is `lock-lost`, `config-drift`, `seal-drift`,
 `evidence-tampered`, `layer-missing`, `layer-unexpected`,

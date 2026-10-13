@@ -58,6 +58,32 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 
 設定は commit してください。設定はリポジトリの契約の一部で、engine はそのバイト列を毎回の run に封印します。run が開いている間に file を変えると、その run は `REFUSED config-drift` になります。
 
+監査中に別のツールが file を生成する場合は、Git が無視する場所を任意で
+`worktree.tolerateChangesIn` に列挙できます。末尾が `/` ならそのディレクトリ、
+無ければ正確に一致する file を指します。`cache/` や `logs/run.log` のような
+リポジトリ相対の path を使います。glob・絶対 path・空や `.` の部分・`..`・
+`./`・`//` は使えません。追跡 file、corpus の文書、engine の設定・state・
+report の場所を含まないことが必要です。engine は run を開く前に調べます。
+不正な値は `config-invalid:worktree.tolerateChangesIn`、object でない
+`worktree` は `config-invalid:worktree` です。Git や corpus の計算が失敗した
+場合は、その理由のまま止まります。1.2.1 以前の engine は `worktree` key を
+`config-invalid:worktree` で拒否します。schema の値は `"1.0"` のままです。
+
+作業木の走査は、列挙した場所の中も含め、Git が無視する entry を記録し続けます。
+gate で大目に見るのは、列挙した場所の中にあり、封印した corpus と source の
+snapshot に含まれず、その時点でも Git が無視する変化だけです。run 中に
+`git add -f` した file、無視規則が消えた path、列挙した場所の親ディレクトリを
+新しく作った場合は拒否の原因になります。大目に見た path は verdict の
+`toleratedWorktreeChanges` に並びます。`worktreeDiffIgnoredOnly` が true に
+なるのは、規則 7 で変化した path を列挙して拒否し、その拒否 path がすべて Git に
+無視され、封印した corpus と snapshot の外にあると gate が確認できた場合だけです。
+Git への確認が失敗した場合や path の差分を復元できない場合は、この印も report の
+案内も出ません。印がある場合、report は二つの回避策を案内します。場所を
+`worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移します。
+一覧が空でない Codex/agy の run は、別の process で再開した後も path ごとに
+判定できるよう `tree.before.json` を保存します。この snapshot は 64 MiB
+までで、上限を超えると `undecided worktree-too-large` になります。
+
 ## 5. 良い impact map を作る
 
 `impact.map` は `{"source": <glob>, "docs": [<path>, ...]}` の並びです。変更された file が `source` に一致すると、列挙された文書すべてが影響対象になります。役に立つ対応表にする規則は 2 つです。
@@ -260,16 +286,16 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided abandoned` | run が放棄された | 再実行 |
-| `REFUSED worktree-modified` | run 中に作業木が変わった | run 中は file を編集・生成しない。再実行 |
+| `REFUSED worktree-modified` | 大目に見られない作業木の変化があり、`worktreeDiff` には拒否した path だけが並ぶ | 書込み元を止めて再実行するか、Git が無視する場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移す。`worktreeDiffIgnoredOnly` が true のときは report の案内を参照 |
 | `REFUSED config-drift` | run 中に `.claude/docaudit.json` が変わった | 再実行 |
 | その他の `REFUSED` | 封印された run の契約が整合性検査に失敗（lease・封印・証拠ハッシュ・層の集合・backend・judgement・adversarial と claim の整合性） | `runs/<runId>/` を確認して再実行 |
 
 ## 11. 困ったとき
 
-- **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で、親ディレクトリ参照の `..` という path セグメント（例: `a/../b`）を含まず、`report.path` は `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む必要があります。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。
+- **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で、親ディレクトリ参照の `..` という path セグメント（例: `a/../b`）を含まず、`report.path` は `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む必要があります。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。`config-invalid:worktree.tolerateChangesIn` なら、path の書き方と Git が無視するかを調べ、追跡 file・corpus 文書・engine の設定・state・report の場所を含まないか確認してください。
 - **`config-needs-migration`。** legacy file しかありません。`migrate` を実行してください（第 6 節）。
 - **最初の run で front matter や orphan の警告が大量に出る。** どれも non-blocking です。時間をかけて直すか、`documentChecks.layerGlobs` で文書を除外してください。
 - **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままなので、次の監査の前に再開か放棄をします。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
 - **`mutex-timeout` または `run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
-- **想定外の file がリポジトリに書かれた。** 監査 run 中に engine がリポジトリ内に書くのは report と `.claude/state/docaudit/` 配下の run 状態だけです。repo 直下の `.mdq/`（mdq の索引と利用記録）だけは例外で、1.0.1 以降 gate は無視します。それ以外は監査中に動いた別のツールによるもので、run が `REFUSED worktree-modified` になる原因でもあります。
+- **想定外の file がリポジトリに書かれた。** engine が書くのは report と `.claude/state/docaudit/` 配下の state で、repo 直下の `.mdq/` は作業木の走査から外します。別のツールが run 中に書いても、列挙した場所の中にあり、gate 時点で Git が無視し、封印した corpus と snapshot の外にある変化だけを大目に見ます。それ以外の変化は、新しく作った親ディレクトリも含めて `REFUSED worktree-modified` です。回避策は、対象となる場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移すことです。entry 数か byte 数の上限を超えた場合は、代わりに `undecided worktree-too-large` になります。

@@ -58,6 +58,34 @@ Leave `enabledLayers` at `["L-SCOPE", "L-DOC", "L-PROJECT"]` unless you intend t
 
 Commit the configuration. It is part of the repository's contract, and the engine seals its bytes into every run: changing the file while a run is open makes the run `REFUSED config-drift`.
 
+If another tool generates files during an audit, you can optionally list their
+Git-ignored location under `worktree.tolerateChangesIn`: a trailing `/` names a
+directory, while a path without it names one exact file. Use repository-relative
+paths such as `cache/` or `logs/run.log`; globs, absolute paths, empty or `.`
+components, `..`, `./`, and `//` are invalid. The location must contain no
+tracked file, corpus document, configuration, state, or report location. The
+engine checks this before opening the run. A bad value gives
+`config-invalid:worktree.tolerateChangesIn`, while a non-object `worktree` gives
+`config-invalid:worktree`; a Git or corpus calculation failure keeps its own
+reason. Engines at 1.2.1 and earlier reject the `worktree` key as
+`config-invalid:worktree`. The schema value remains `"1.0"`.
+
+The tree scan still records Git-ignored entries, including those in a listed
+location. At the gate, a change is tolerated only inside that location, outside
+the sealed corpus and source snapshot, and still ignored by Git. Adding a file
+with `git add -f`, removing its ignore rule, or creating a parent directory of
+the listed location can therefore cause refusal. The verdict lists tolerated
+paths in `toleratedWorktreeChanges`. Only a rule-7 refusal with listed differing
+paths can set `worktreeDiffIgnoredOnly` to true: the gate must confirm that every
+refused path is ignored by Git and outside the sealed corpus and snapshot. If Git
+classification fails or path differences cannot be recovered, the flag and
+its report guidance are absent. When present, the report suggests two remedies:
+list the location in
+`worktree.tolerateChangesIn` or move the output outside the working tree.
+Codex and agy runs with a nonempty list save `tree.before.json` for path-level
+classification after a restart; the snapshot has a 64 MiB limit and may end
+the run as `undecided worktree-too-large`.
+
 ## 5. Build a good impact map
 
 `impact.map` is a list of `{"source": <glob>, "docs": [<path>, ...]}` entries. When a changed file matches `source`, every listed document becomes impacted. Two rules make the map useful:
@@ -260,16 +288,16 @@ In `extended`, the adversarial layer asks for evidence-backed contradictions per
 | `undecided workflow-adapter-unavailable` | `extended` with the documents verified through Claude Code agents and no usable Codex | make Codex usable |
 | `undecided codex-unavailable` | `extended` with the documents verified through agy and no usable Codex | make Codex usable |
 | `undecided abandoned` | the run was abandoned | run again |
-| `REFUSED worktree-modified` | the working tree changed during the run | do not edit or generate files while a run is open; run again |
+| `REFUSED worktree-modified` | an unaccepted working-tree change was found; `worktreeDiff` lists only refused paths | stop the writer and run again, list its ignored location in `worktree.tolerateChangesIn`, or move its output outside the working tree; follow the report guidance when `worktreeDiffIgnoredOnly` is true |
 | `REFUSED config-drift` | `.claude/docaudit.json` changed during the run | run again |
 | other `REFUSED` reasons | the sealed run contract failed an integrity check (lease, seal, evidence hashes, layer set, backend, judgements, adversarial and claim consistency) | inspect `runs/<runId>/`; run again |
 
 ## 11. Troubleshooting
 
-- **`config-invalid:<detail>` on every run.** The detail names the offending key. Paths must be repository-relative without a `..` path segment (a parent-directory reference, for example `a/../b`); `report.path` must end in `.md` and contain exactly one `<YYYY-MM-DD>` and at most one `[_NN]` anywhere in the path; the basename must have nonempty text before the date when the date is in the basename, or be nonempty when the date is in a directory.
+- **`config-invalid:<detail>` on every run.** The detail names the offending key. Paths must be repository-relative without a `..` path segment (a parent-directory reference, for example `a/../b`); `report.path` must end in `.md` and contain exactly one `<YYYY-MM-DD>` and at most one `[_NN]` anywhere in the path; the basename must have nonempty text before the date when the date is in the basename, or be nonempty when the date is in a directory. For `config-invalid:worktree.tolerateChangesIn`, check the path form and whether Git ignores it and it excludes tracked files, corpus documents, and the engine's configuration, state, and report locations.
 - **`config-needs-migration`.** Only the legacy file exists. Run `migrate` (section 6).
 - **The first run reports many front-matter or orphan warnings.** They are non-blocking. Fix them over time, or exempt documents with `documentChecks.layerGlobs`.
 - **`history-corrupt`.** `history.jsonl` has a malformed line, is not a regular file, is not UTF-8, or contains an overlong line; an anchor file under `anchors/` is unreadable or malformed; or the anchor candidate that a `CONSISTENT` run points at is unreadable or does not match its recorded hash. The engine neither reads nor appends history until this is repaired. Keep a copy of the whole state directory, then find which file is broken: a malformed history line is fixed by moving the history file aside while preserving its valid lines under another name and starting a new history file; a broken anchor is fixed by moving that profile's anchor file aside, after which the profile needs a new `--full` run. If the failure happened inside a run (exit status 4), that run is still open: resume or abandon it before the next audit. If `history.jsonl` itself cannot be read because of permissions, it stops with exit status 4 and reason `PermissionError`, not `history-corrupt`; repair permissions and run again.
 - **`mutex-timeout` or `run-in-progress`.** Another engine process holds the run. Wait for it, or resume or abandon the run named in `run-open.json` once no process holds it.
 - **The skill is not listed after install.** Start a new Claude Code session or run `/reload-plugins`, then check `claude plugin list`.
-- **Something was written into the repository that you did not expect.** During an audit run, the only files the engine writes inside the repository are the report and the run state under `.claude/state/docaudit/`. The top-level `.mdq/` (mdq's index and usage record) is the only exception: since 1.0.1 the gate ignores it. Anything else came from another tool that ran during the audit; that is also what makes a run `REFUSED worktree-modified`.
+- **Something was written into the repository that you did not expect.** The engine writes only the report and run state; the state is under `.claude/state/docaudit/`. It excludes the top-level `.mdq/` from its tree scan. Other tools may write during a run, but a changed path is tolerated only under the configured, still Git-ignored location and outside the sealed corpus and snapshot. A change outside it, including a newly created parent directory, causes `REFUSED worktree-modified`; the two remedies are to list an eligible location in `worktree.tolerateChangesIn` or move the output outside the working tree. If the tree exceeds its entry or byte limit, the result is instead `undecided worktree-too-large`.
