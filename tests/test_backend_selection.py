@@ -637,8 +637,8 @@ class SkillTests(unittest.TestCase):
         for word in ("choose-backend", "choices", "--fast"):
             self.assertIn(word, skill)
         self.assertIn(
-            "本文に列挙したコマンド以外を実行しない。`done`／`abort`（`undecided`・`REFUSED` を含む）"
-            "の要約を表示したら、追加の調査コマンド（`git status` 等）を実行せず終了する。",
+            "この skill の手順では、本文に列挙したコマンド以外を実行しない。`done`／`abort`（`undecided`・`REFUSED` を含む）の要約を表示したら、追加の"
+            "調査コマンド（`git status` 等）を実行せず skill の手順を終える。この決まりは skill の手順だけに当てはまり、その後に利用者が頼んだ作業には当てはまらない。",
             skill,
         )
         self.assertIn('Workflow({name: "docaudit:docaudit-verify"', skill)
