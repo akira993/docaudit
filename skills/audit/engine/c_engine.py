@@ -7,6 +7,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import threading
 from dataclasses import replace
 from pathlib import PurePosixPath
@@ -62,9 +63,22 @@ def _check_tolerated_paths(repo, config):
     if not tolerated:
         return
     template = config.facts["report"]["path"]
-    report_prefix = template[:min(template.index(marker) for marker in ("<YYYY-MM-DD>", "[_NN]") if marker in template)]
     report_rx = c_scope._report_rx(template)
+    report_directory_patterns = report_rx.pattern[1:-1].split("/")[:-1]
     state_root = STATE + "/"
+
+    def protected_directory(candidate: str) -> bool:
+        parts = candidate[:-1].split("/")
+        report_contains = len(parts) <= len(report_directory_patterns) and all(
+            re.fullmatch(pattern, part) is not None
+            for pattern, part in zip(report_directory_patterns, parts)
+        )
+        return (
+            CONFIG_PATH.startswith(candidate)
+            or state_root.startswith(candidate)
+            or candidate.startswith(state_root)
+            or report_contains
+        )
     for value in tolerated:
         try:
             ignored = procs.run_subprocess(
@@ -88,11 +102,9 @@ def _check_tolerated_paths(repo, config):
         directory = value.endswith("/")
         path = value[:-1] if directory else value
         protected = (
-            ((not directory and path == CONFIG_PATH)
-             or (directory and CONFIG_PATH.startswith(value)))
-            or value.startswith(state_root) or (directory and state_root.startswith(value))
-            or (report_prefix.startswith(value) or value.startswith(report_prefix)
-                if directory else report_rx.fullmatch(value) is not None)
+            path == CONFIG_PATH
+            or protected_directory(value if directory else value + "/")
+            or (not directory and report_rx.fullmatch(value) is not None)
         )
         if protected:
             raise c_config.ConfigRejected("config-invalid:worktree.tolerateChangesIn")

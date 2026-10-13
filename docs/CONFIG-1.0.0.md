@@ -20,7 +20,7 @@ segment (a parent-directory reference) or begin with an absolute path.
 | `impact.heuristics` | `{minIdentifierLength: int, excludeBasenames: string[], saturationWarnRatio: number, excludeDocPathTokens: boolean}`; exclusion names are compared case-insensitively | no | omitted |
 | `impact.ssotSources` | `{source: path, docs: path[]}` array | no | `[]` |
 | `report.path` | string template | yes | — |
-| `worktree.tolerateChangesIn` | path string array | no | `[]` |
+| `worktree.tolerateChangesIn` | path string array | no | `omitted` |
 | `documentChecks.frontMatterFields` | string array | no | `[]` |
 | `documentChecks.frontMatterOverrides` | `{glob: glob, fields: string[]}` array | no | `[]` |
 | `documentChecks.indexFiles` | path array | no | `[]` |
@@ -40,8 +40,9 @@ empty path components are invalid. The engine does not normalize these values.
 An absent `worktree` object or an empty list keeps the usual worktree rule.
 
 Before opening a run, the engine checks that each listed path is ignored by
-Git, contains no tracked file or sealed corpus document, and neither contains
-nor lies inside the configuration file, state root, or report location. An
+Git, contains no tracked file or corpus document, and neither contains
+nor lies inside the configuration file, state root, or report location. A file value that names a directory containing the configuration file,
+state root, or a report is also invalid. An
 invalid value or failed restriction gives
 `config-invalid:worktree.tolerateChangesIn`; a non-object `worktree` gives
 `config-invalid:worktree`, and an unknown member gives

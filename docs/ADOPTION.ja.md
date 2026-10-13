@@ -63,7 +63,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 無ければ正確に一致する file を指します。`cache/` や `logs/run.log` のような
 リポジトリ相対の path を使います。glob・絶対 path・空や `.` の部分・`..`・
 `./`・`//` は使えません。追跡 file、corpus の文書、engine の設定・state・
-report の場所を含まないことが必要です。engine は run を開く前に調べます。
+report の場所を含まないことが必要です。指定する場所は、それらの場所の中にも置けません。engine は run を開く前に調べます。
 不正な値は `config-invalid:worktree.tolerateChangesIn`、object でない
 `worktree` は `config-invalid:worktree` です。Git や corpus の計算が失敗した
 場合は、その理由のまま止まります。1.2.1 以前の engine は `worktree` key を

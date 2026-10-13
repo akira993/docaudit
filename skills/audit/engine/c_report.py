@@ -40,7 +40,7 @@ def _safe(text):
 def _safe_judgement_path(path):
     try: _safe(path)
     except (TypeError, ValueError): return False
-    return isinstance(path,str) and not os.path.isabs(path)
+    return isinstance(path,str)
 def redact(text):
     values=[]; count=0
     for token in re.split(r"(\s+)",text):

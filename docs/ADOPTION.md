@@ -63,7 +63,7 @@ Git-ignored location under `worktree.tolerateChangesIn`: a trailing `/` names a
 directory, while a path without it names one exact file. Use repository-relative
 paths such as `cache/` or `logs/run.log`; globs, absolute paths, empty or `.`
 components, `..`, `./`, and `//` are invalid. The location must contain no
-tracked file, corpus document, configuration, state, or report location. The
+tracked file, corpus document, configuration, state, or report location and must not lie inside any of those locations. The
 engine checks this before opening the run. A bad value gives
 `config-invalid:worktree.tolerateChangesIn`, while a non-object `worktree` gives
 `config-invalid:worktree`; a Git or corpus calculation failure keeps its own

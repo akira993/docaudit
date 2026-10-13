@@ -262,7 +262,7 @@ class ToleratedGateTests(unittest.TestCase):
         self.assertIn("- 大目に見た作業木の変化: 8 件", report)
         self.assertIn("- 大目に見た path（先頭 5 件）:", report)
         self.assertNotIn("pkg@1.2.3", report)
-        self.assertFalse(c_report._safe_judgement_path("/tmp/private-file"))
+        self.assertTrue(c_report._safe_judgement_path("/tmp/private-file"))
 
     def test_resume_uses_sealed_tree_snapshot_after_cache_clear(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -129,6 +129,48 @@ class TolerateConfigTests(unittest.TestCase):
                 self.ignore(value)
                 self.assert_pre_run_rejected([value])
 
+    def test_report_date_directory_prefixes_are_rejected(self):
+        self.config["report"]["path"] = "out/<YYYY-MM-DD>/audit.md"
+        for value in ("out/", "out/2026-01-01/", "out/2026-01-01_02/"):
+            with self.subTest(value=value):
+                self.ignore(value)
+                self.assert_pre_run_rejected([value])
+
+    def test_report_directory_sibling_is_accepted(self):
+        self.config["report"]["path"] = "out/<YYYY-MM-DD>/audit.md"
+        self.ignore("out/cache/")
+        self.write_config(["out/cache/"])
+        result = c_engine.run(self.root, full=True, profile="standard", deps=_deps())
+        self.assertEqual(result["exitCode"], 0)
+
+    def test_report_directory_nested_sibling_is_accepted(self):
+        self.config["report"]["path"] = "out/<YYYY-MM-DD>/audit.md"
+        self.ignore("out/2026-01-01/cache/")
+        self.write_config(["out/2026-01-01/cache/"])
+        result = c_engine.run(self.root, full=True, profile="standard", deps=_deps())
+        self.assertEqual(result["exitCode"], 0)
+
+    def test_report_suffix_in_filename_does_not_extend_date_directory(self):
+        self.config["report"]["path"] = "out/<YYYY-MM-DD>/audit[_NN].md"
+        self.ignore("out/2026-01-01_02/")
+        self.write_config(["out/2026-01-01_02/"])
+        result = c_engine.run(self.root, full=True, profile="standard", deps=_deps())
+        self.assertEqual(result["exitCode"], 0)
+
+    def test_report_file_stem_is_not_a_directory(self):
+        self.config["report"]["path"] = "out/a_<YYYY-MM-DD>.md"
+        self.ignore("out/a_2026-01-01/")
+        self.write_config(["out/a_2026-01-01/"])
+        result = c_engine.run(self.root, full=True, profile="standard", deps=_deps())
+        self.assertEqual(result["exitCode"], 0)
+
+    def test_file_values_naming_protected_directories_are_rejected(self):
+        self.config["report"]["path"] = "out/<YYYY-MM-DD>/audit.md"
+        for value in (".claude", ".claude/state", ".claude/state/docaudit", "out", "out/2026-01-01"):
+            with self.subTest(value=value):
+                self.ignore(value)
+                self.assert_pre_run_rejected([value])
+
     def test_ignored_untracked_config_itself_is_rejected(self):
         procs.run_subprocess(
             ["git", "rm", "--cached", ".claude/docaudit.json"],
