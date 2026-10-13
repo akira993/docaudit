@@ -25,7 +25,7 @@ class SealedConfig:
     facts: dict
 
 
-_TOP = {"docauditSchema", "enabledLayers", "corpus", "changes", "impact", "report", "documentChecks", "projectChecks"}
+_TOP = {"docauditSchema", "enabledLayers", "corpus", "changes", "impact", "report", "documentChecks", "projectChecks", "worktree"}
 _CORPUS = {"docGlobs", "excludeDocGlobs", "respectGitignore", "auditReportsInCorpus"}
 _CHANGES = {"diffGlobs", "regressionRecheck"}
 _IMPACT = {"map", "maxImpactedDocs", "heuristics", "ssotSources"}
@@ -80,6 +80,19 @@ def _report_path(value):
     before = base.split("<YYYY-MM-DD>", 1)[0]
     if not before:
         _bad("report.path")
+
+
+def _tolerated_paths(value):
+    label = "worktree.tolerateChangesIn"
+    if not isinstance(value, list):
+        _bad(label)
+    for item in value:
+        if not isinstance(item, str):
+            _bad(label)
+        path = item[:-1] if item.endswith("/") else item
+        if (not path or any(part in {"", ".", ".."} for part in path.split("/"))
+                or any(character in item for character in "*?[")):
+            _bad(label)
 
 
 def _validate(data):
@@ -139,6 +152,10 @@ def _validate(data):
     report = _keys(data["report"], _REPORT, "report")
     if set(report) != {"path"}: _bad("report.path")
     _report_path(report["path"])
+    if "worktree" in data:
+        worktree = _keys(data["worktree"], {"tolerateChangesIn"}, "worktree")
+        if "tolerateChangesIn" in worktree:
+            _tolerated_paths(worktree["tolerateChangesIn"])
     checks = _keys(data.setdefault("documentChecks", {}), _CHECKS, "documentChecks")
     checks.setdefault("frontMatterFields", []); checks.setdefault("frontMatterOverrides", []); checks.setdefault("indexFiles", []); checks.setdefault("layerGlobs", {})
     _strings(checks["frontMatterFields"], "documentChecks.frontMatterFields")

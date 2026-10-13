@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from . import (
     c_cap, c_config, c_evidence, c_gate, c_history, c_io, c_profile, c_report,
-    c_retrieval, c_run, c_workflow,
+    c_retrieval, c_run, c_scope, c_workflow, procs,
 )
 from .contract import CONTRACT_VERSION
 from .c_codex import BudgetExceeded
@@ -51,6 +51,62 @@ def _sha(data: bytes) -> str:
 
 def _run_rel(run_id: str, name: str) -> str:
     return f"runs/{run_id}/{name}"
+
+
+def _tolerated_paths(config):
+    return json.loads(config.normalized_json).get("worktree", {}).get("tolerateChangesIn", [])
+
+
+def _check_tolerated_paths(repo, config):
+    tolerated = _tolerated_paths(config)
+    if not tolerated:
+        return
+    template = config.facts["report"]["path"]
+    report_prefix = template[:min(template.index(marker) for marker in ("<YYYY-MM-DD>", "[_NN]") if marker in template)]
+    report_rx = c_scope._report_rx(template)
+    state_root = STATE + "/"
+    for value in tolerated:
+        try:
+            ignored = procs.run_subprocess(
+                ["git", "check-ignore", "-q", "--", "./" + value],
+                cwd=repo.path, stdout=-1, stderr=-1, timeout=60,
+            )
+            if ignored.returncode not in (0, 1):
+                raise c_config.ConfigRejected("git-failed")
+            if ignored.returncode == 1:
+                raise c_config.ConfigRejected("config-invalid:worktree.tolerateChangesIn")
+            tracked = procs.run_subprocess(
+                ["git", "--literal-pathspecs", "ls-files", "-z", "--", value],
+                cwd=repo.path, stdout=-1, stderr=-1, timeout=60,
+            )
+        except (OSError, ValueError) as exc:
+            raise c_config.ConfigRejected("git-failed") from exc
+        if tracked.returncode:
+            raise c_config.ConfigRejected("git-failed")
+        if tracked.stdout:
+            raise c_config.ConfigRejected("config-invalid:worktree.tolerateChangesIn")
+        directory = value.endswith("/")
+        path = value[:-1] if directory else value
+        protected = (
+            ((not directory and path == CONFIG_PATH)
+             or (directory and CONFIG_PATH.startswith(value)))
+            or value.startswith(state_root) or (directory and state_root.startswith(value))
+            or (report_prefix.startswith(value) or value.startswith(report_prefix)
+                if directory else report_rx.fullmatch(value) is not None)
+        )
+        if protected:
+            raise c_config.ConfigRejected("config-invalid:worktree.tolerateChangesIn")
+    try:
+        corpus = c_scope.compute_corpus(repo, config.facts)
+    except c_scope.ScopeRejected as exc:
+        raise c_config.ConfigRejected(exc.reason) from exc
+    except OSError as exc:
+        raise c_config.ConfigRejected("git-failed") from exc
+    if any(
+        document == value if not value.endswith("/") else document.startswith(value)
+        for value in tolerated for document in corpus
+    ):
+        raise c_config.ConfigRejected("config-invalid:worktree.tolerateChangesIn")
 
 
 def _repo_run_rel(run_id: str, name: str) -> str:
@@ -919,9 +975,9 @@ def _retrieval_stage(repo, handle, dependencies, resolved, scope):
     return summary, stored
 
 
-def _tree_before(repo, handle, allowed, resolved):
-    if not resolved.startswith("workflow:"):
-        return c_evidence.tree_digest(repo, allowed)
+def _tree_before(repo, handle, allowed, resolved, tolerated=()):
+    if not resolved.startswith("workflow:") and not tolerated:
+        return c_evidence.tree_digest(repo, allowed, tolerated=tolerated)
     existing = _read_optional(handle.state_dir_fd, handle.run_id, "tree.before.json")
     if existing is not None:
         try:
@@ -931,7 +987,7 @@ def _tree_before(repo, handle, allowed, resolved):
         if not isinstance(snapshot, dict):
             raise EngineRejected("seal-drift")
         return c_evidence.semantic_hash(snapshot)
-    snapshot = c_evidence.tree_snapshot(repo, allowed)
+    snapshot = c_evidence.tree_snapshot(repo, allowed, tolerated=tolerated)
     encoded = _canonical(snapshot)
     if len(encoded) > c_evidence.MAX_TREE_SNAPSHOT_BYTES:
         raise c_evidence.EvidenceRejected("worktree-too-large")
@@ -987,7 +1043,7 @@ def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, confi
         repo, guard, handle.run_id, plan.profileName, report_path, workflow_docs,
     )
     try:
-        digest_before = _tree_before(repo, handle, allowed, resolved)
+        digest_before = _tree_before(repo, handle, allowed, resolved, _tolerated_paths(config))
         manifest = _seal(
             repo, handle, dependencies, journal, config, scope, plan,
             capability_doc, row, report_path, allowed, timeline,
@@ -1111,6 +1167,7 @@ def _drive_resume(repo, handle, guard, dependencies):
     config_event = _event(journal, "config-sealed")
     if config_event is None:
         current_config = c_config.load_config(repo)
+        _check_tolerated_paths(repo, current_config)
         config_doc = _file_stage(
             handle, dependencies, journal, "config-sealed", "config.snapshot.json",
             json.loads(current_config.normalized_json),
@@ -1202,7 +1259,7 @@ def _drive_resume(repo, handle, guard, dependencies):
     )
     row = row or _profile_row(dependencies.profile_table, plan["profileName"])
     timeline.started_at = handle.opened_at
-    digest_before = _tree_before(repo, handle, allowed, resolved)
+    digest_before = _tree_before(repo, handle, allowed, resolved, _tolerated_paths(config))
     manifest = _seal(
         repo, handle, dependencies, journal, config, scope, plan, capability,
         row, report_path, allowed, timeline, retrieval=retrieval,
@@ -1226,6 +1283,7 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
         # Configuration and fixed-profile rejection happen before a run is opened.
         with c_io.RepoRoot(repo_root) as repo:
             config = c_config.load_config(repo)
+            _check_tolerated_paths(repo, config)
             if profile is not None:
                 c_profile.resolve(dependencies.profile_table, profile, config.capability)
             if ask_backend and backend is None:

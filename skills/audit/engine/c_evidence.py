@@ -8,7 +8,7 @@ import os
 import stat
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from . import c_io
 from .contract import CONTRACT_VERSION
@@ -168,10 +168,29 @@ def _excluded_paths(allowed_paths: Iterable[str]) -> frozenset[str]:
     return frozenset(result)
 
 
-def _regular_entry(repo: Any, rel: str, remaining: int) -> tuple[str, int]:
+_UNSTABLE_ENTRY = "unstable:"
+
+
+def _is_tolerated(rel: str, tolerated: Sequence[str]) -> bool:
+    return any(
+        rel == value[:-1] or rel.startswith(value)
+        if value.endswith("/") else rel == value
+        for value in tolerated
+    )
+
+
+def _regular_entry(repo: Any, rel: str, remaining: int, *, tolerated: bool = False) -> tuple[str, int]:
     parts = c_io.validate_rel_path(rel)
-    parent = c_io.open_dir_fd(repo, "/".join(parts[:-1]))
+    try:
+        parent = c_io.open_dir_fd(repo, "/".join(parts[:-1]))
+    except (OSError, c_io.IoRejected) as exc:
+        if tolerated:
+            if isinstance(exc, FileNotFoundError):
+                raise
+            return _UNSTABLE_ENTRY, 0
+        raise
     fd = -1
+    consumed = 0
     try:
         fd = os.open(
             parts[-1],
@@ -188,7 +207,6 @@ def _regular_entry(repo: Any, rel: str, remaining: int) -> tuple[str, int]:
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~getattr(os, "O_NONBLOCK", 0))
         digest = hashlib.sha1(b"blob " + str(info.st_size).encode("ascii") + b"\0")
-        consumed = 0
         while True:
             chunk = os.read(fd, 1024 * 1024)
             if not chunk:
@@ -208,15 +226,25 @@ def _regular_entry(repo: Any, rel: str, remaining: int) -> tuple[str, int]:
             raise EvidenceRejected("worktree-modified", rel)
         mode = "100755" if stat.S_IMODE(info.st_mode) & 0o111 else "100644"
         return mode + ":" + digest.hexdigest(), consumed
-    except OSError as exc:
+    except FileNotFoundError as exc:
+        if tolerated:
+            raise
         raise EvidenceRejected("corpus-unreadable", rel) from exc
+    except OSError as exc:
+        if tolerated:
+            return _UNSTABLE_ENTRY, consumed
+        raise EvidenceRejected("corpus-unreadable", rel) from exc
+    except EvidenceRejected as exc:
+        if tolerated and exc.reason != "worktree-too-large":
+            return _UNSTABLE_ENTRY, consumed
+        raise
     finally:
         if fd >= 0:
             os.close(fd)
         os.close(parent)
 
 
-def tree_snapshot(repo: Any, allowed_paths: Iterable[str]) -> dict[str, str]:
+def tree_snapshot(repo: Any, allowed_paths: Iterable[str], *, tolerated: Sequence[str] = ()) -> dict[str, str]:
     """Read every repository entry except .git, .mdq, and the exact sealed outputs."""
     root = _root_path(repo)
     excluded = _excluded_paths(allowed_paths)
@@ -235,21 +263,42 @@ def tree_snapshot(repo: Any, allowed_paths: Iterable[str]) -> dict[str, str]:
             rel = f"{relative_dir}/{name}" if relative_dir else name
             if is_tool_path(rel) or rel in excluded:
                 continue
+            tolerate_entry = _is_tolerated(rel, tolerated)
             try:
                 info = os.lstat(os.path.join(current, name))
             except FileNotFoundError as exc:
+                if tolerate_entry:
+                    continue
                 raise EvidenceRejected("worktree-modified", rel) from exc
-            if stat.S_ISREG(info.st_mode):
-                entry, consumed = _regular_entry(repo, rel, MAX_TREE_BYTES - total_bytes)
-                total_bytes += consumed
-                if total_bytes > MAX_TREE_BYTES:
-                    raise EvidenceRejected("worktree-too-large")
-                entries[rel] = entry
-            elif stat.S_ISLNK(info.st_mode):
-                target = os.readlink(os.path.join(current, name)).encode("utf-8", "surrogateescape")
-                entries[rel] = "120000:" + sha256_bytes(target)
+            except OSError:
+                if not tolerate_entry:
+                    raise
+                info = None
+            if info is None:
+                entry = _UNSTABLE_ENTRY
             else:
-                entries[rel] = "other:" + str(info.st_mode)
+                try:
+                    if stat.S_ISREG(info.st_mode):
+                        entry, consumed = _regular_entry(
+                            repo, rel, MAX_TREE_BYTES - total_bytes, tolerated=tolerate_entry,
+                        )
+                        total_bytes += consumed
+                        if total_bytes > MAX_TREE_BYTES:
+                            raise EvidenceRejected("worktree-too-large")
+                    elif stat.S_ISLNK(info.st_mode):
+                        target = os.readlink(os.path.join(current, name)).encode("utf-8", "surrogateescape")
+                        entry = "120000:" + sha256_bytes(target)
+                    else:
+                        entry = "other:" + str(info.st_mode)
+                except FileNotFoundError:
+                    if tolerate_entry:
+                        continue
+                    raise
+                except (OSError, c_io.IoRejected):
+                    if not tolerate_entry:
+                        raise
+                    entry = _UNSTABLE_ENTRY
+            entries[rel] = entry
             if len(entries) > MAX_TREE_ENTRIES:
                 raise EvidenceRejected("worktree-too-large")
     return entries
@@ -258,9 +307,9 @@ def tree_snapshot(repo: Any, allowed_paths: Iterable[str]) -> dict[str, str]:
 _TREE_CACHE: dict[tuple[str, str, tuple[str, ...]], dict[str, str]] = {}
 
 
-def tree_digest(repo: Any, allowed_paths: Iterable[str]) -> str:
+def tree_digest(repo: Any, allowed_paths: Iterable[str], *, tolerated: Sequence[str] = ()) -> str:
     allowed = tuple(sorted(allowed_paths))
-    entries = tree_snapshot(repo, allowed)
+    entries = tree_snapshot(repo, allowed, tolerated=tolerated)
     digest = semantic_hash(entries)
     _TREE_CACHE[(_root_path(repo), digest, allowed)] = entries
     return digest
@@ -282,9 +331,9 @@ def _snapshot_fallback(repo: Any, allowed: tuple[str, ...], before_digest: str):
     return value
 
 
-def tree_diff(repo: Any, allowed_paths: Iterable[str], before_digest: str) -> tuple[str, list[str]]:
+def tree_diff(repo: Any, allowed_paths: Iterable[str], before_digest: str, *, tolerated: Sequence[str] = ()) -> tuple[str, list[str]]:
     allowed = tuple(sorted(allowed_paths))
-    current = tree_snapshot(repo, allowed)
+    current = tree_snapshot(repo, allowed, tolerated=tolerated)
     digest = semantic_hash(current)
     before = _TREE_CACHE.get((_root_path(repo), before_digest, allowed))
     if before is None:
@@ -294,7 +343,9 @@ def tree_diff(repo: Any, allowed_paths: Iterable[str], before_digest: str) -> tu
     changed = sorted(
         path
         for path in set(before) | set(current)
-        if before.get(path) != current.get(path)
+        if (before.get(path) != current.get(path)
+            or before.get(path) == _UNSTABLE_ENTRY
+            or current.get(path) == _UNSTABLE_ENTRY)
     )
     return digest, changed
 
