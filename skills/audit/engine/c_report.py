@@ -40,7 +40,7 @@ def _safe(text):
 def _safe_judgement_path(path):
     try: _safe(path)
     except (TypeError, ValueError): return False
-    return isinstance(path,str)
+    return isinstance(path,str) and not os.path.isabs(path)
 def redact(text):
     values=[]; count=0
     for token in re.split(r"(\s+)",text):
@@ -81,6 +81,13 @@ def render(facts):
     lines += ["",REPORT_SECTIONS[4],"- "+decision]
     if reason: lines.append("- reason: "+_display(reason))
     if decision=="REFUSED": lines.append("- refusedChecks: "+", ".join(_display(x) for x in refused_checks))
+    tolerated=facts.get("toleratedWorktreeChanges",[])
+    if tolerated:
+        lines.append(f"- 大目に見た作業木の変化: {len(tolerated)} 件")
+        visible=[path for path in sorted(tolerated) if _safe_judgement_path(path)][:5]
+        if visible: lines.append(f"- 大目に見た path（先頭 {len(visible)} 件）: {', '.join(visible)}")
+    if facts.get("worktreeDiffIgnoredOnly") is True:
+        lines.append("- 案内: 変化した path はすべて Git が無視する場所にありました。その場所を設定の worktree.tolerateChangesIn に書くか、書き出し先を作業木の外へ移すと、この拒否を避けられます。")
     anchor = "前進条件を満たす" if facts.get("anchorEligible") else "前進条件を満たさない"
     if facts.get("anchorEligible") and facts.get("acceptBaseline") is True and facts.get("verdict")=="NEEDS_FIX":
         anchor = "前進条件を満たす（--accept-baseline による受理）"

@@ -340,6 +340,7 @@ def tree_diff(repo: Any, allowed_paths: Iterable[str], before_digest: str, *, to
         before = _snapshot_fallback(repo, allowed, before_digest)
     if before is None:
         return digest, []
+    _TREE_CACHE[(_root_path(repo), digest, allowed)] = current
     changed = sorted(
         path
         for path in set(before) | set(current)
@@ -348,6 +349,32 @@ def tree_diff(repo: Any, allowed_paths: Iterable[str], before_digest: str, *, to
             or current.get(path) == _UNSTABLE_ENTRY)
     )
     return digest, changed
+
+
+def tree_diff_directories(
+    repo: Any, allowed_paths: Iterable[str], before_digest: str,
+    current_digest: str, changed_paths: Iterable[str],
+) -> set[str]:
+    """Identify directory entries in either snapshot used by the last tree diff."""
+    allowed = tuple(sorted(allowed_paths))
+    root = _root_path(repo)
+    before = _TREE_CACHE.get((root, before_digest, allowed))
+    if before is None:
+        before = _snapshot_fallback(repo, allowed, before_digest)
+    current = _TREE_CACHE.get((root, current_digest, allowed), {})
+
+    def is_directory(value: str | None) -> bool:
+        if not isinstance(value, str) or not value.startswith("other:"):
+            return False
+        try:
+            return stat.S_ISDIR(int(value[6:]))
+        except ValueError:
+            return False
+
+    return {
+        path for path in changed_paths
+        if is_directory((before or {}).get(path)) or is_directory(current.get(path))
+    }
 
 
 def _state_target(target: Any, run_id: str | None = None) -> tuple[Any, str]:

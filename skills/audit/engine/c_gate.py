@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Iterable, Mapping
 
-from . import c_evidence, c_io, c_run, deps
+from . import c_evidence, c_io, c_run, deps, procs
 from .layers import LAYER_REGISTRY
 
 
@@ -64,6 +64,35 @@ def _accepted(verdict: str, counts: Mapping[str, int], blocking: list[dict[str, 
             "refusedChecks": [],
         }
     )
+
+
+def _with_tolerated(value: dict[str, Any], paths: list[str]) -> dict[str, Any]:
+    if paths:
+        value["toleratedWorktreeChanges"] = paths
+        _finish(value)
+    return value
+
+
+def _ignored_paths(repo: Any, paths: list[str], directories: set[str]) -> set[str] | None:
+    """Ask Git once about every changed path, preserving literal path bytes."""
+    if not paths:
+        return set()
+    queries = {path: "./" + path + ("/" if path in directories else "") for path in paths}
+    payload = b"\0".join(query.encode("utf-8", "surrogateescape") for query in queries.values()) + b"\0"
+    try:
+        result = procs.run_subprocess(
+            ["git", "check-ignore", "-z", "--stdin"],
+            cwd=c_evidence._root_path(repo), input=payload, stdout=-1, stderr=-1,
+        )
+    except OSError:
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    reported = set(result.stdout.split(b"\0"))
+    return {
+        path for path, query in queries.items()
+        if query.encode("utf-8", "surrogateescape") in reported
+    }
 
 
 def _json_file(state: Any, run_id: str, name: str) -> tuple[dict[str, Any], bytes]:
@@ -267,19 +296,44 @@ def decide(
         return _refused("backend-mismatch", counts)
 
     # (7) Includes ignored paths, symlinks, modes, and arbitrarily large files.
+    tolerated_places = _config_snapshot.get("worktree", {}).get("tolerateChangesIn", [])
     try:
         current_digest, changed_paths = c_evidence.tree_diff(
             repo,
             disk_manifest["allowedWritePaths"],
             disk_manifest["treeDigestBefore"],
+            tolerated=tolerated_places,
         )
     except c_evidence.EvidenceRejected as exc:
         if exc.reason == "worktree-too-large":
             return _undecided("worktree-too-large", counts)
         return _refused("worktree-modified", counts, worktree_diff=[])
-    if current_digest != disk_manifest.get("treeDigestBefore"):
+    tolerated_paths: list[str] = []
+    if changed_paths:
+        directories = c_evidence.tree_diff_directories(
+            repo, disk_manifest["allowedWritePaths"],
+            disk_manifest["treeDigestBefore"], current_digest, changed_paths,
+        )
+        ignored = _ignored_paths(repo, changed_paths, directories)
+        sealed_paths = set(scope.get("corpus", ())) | set(scope.get("snapshot", {}))
+        tolerated_paths = sorted(
+            path for path in changed_paths
+            if ignored is not None and path in ignored
+            and path not in sealed_paths
+            and c_evidence._is_tolerated(path, tolerated_places)
+        )
+        untolerated_paths = sorted(set(changed_paths) - set(tolerated_paths))
+        if untolerated_paths:
+            refusal = _refused("worktree-modified", counts, worktree_diff=untolerated_paths)
+            if ignored is not None and all(
+                path in ignored and path not in sealed_paths for path in untolerated_paths
+            ):
+                refusal["worktreeDiffIgnoredOnly"] = True
+                _finish(refusal)
+            return _with_tolerated(refusal, tolerated_paths)
+    elif current_digest != disk_manifest.get("treeDigestBefore"):
         return _refused(
-            "worktree-modified", counts, worktree_diff=changed_paths
+            "worktree-modified", counts, worktree_diff=[]
         )
 
     # (8) Every returned judgement is identity-bound to one impacted snapshot.
@@ -289,26 +343,26 @@ def decide(
     judgement_layer = next((row["id"] for row in registry if row["id"] == "L-DOC"), None)
     judgement_checks, failed_paths, seen, judgements = check_judgements(adapters, registry, scope)
     if judgement_checks:
-        return _refused("judgement-mismatch", counts, checks=sorted(set(judgement_checks)))
+        return _with_tolerated(_refused("judgement-mismatch", counts, checks=sorted(set(judgement_checks))), tolerated_paths)
 
     # (9) Invalid judgements above outrank another layer's incomplete status.
     for layer_id in expected:
         row = next(item for item in adapters if item.get("layerId") == layer_id)
         data = row.get("data", {})
         if data.get("status") == "incomplete":
-            return _undecided(data.get("reason") or "adapter-incomplete", counts)
+            return _with_tolerated(_undecided(data.get("reason") or "adapter-incomplete", counts), tolerated_paths)
         if data.get("status") != "complete":
-            return _undecided("adapter-incomplete", counts)
+            return _with_tolerated(_undecided("adapter-incomplete", counts), tolerated_paths)
         if row.get("layerId") == judgement_layer and failed_paths:
-            return _refused(
+            return _with_tolerated(_refused(
                 "judgement-missing", counts,
                 checks=["judgement-missing:" + path for path in sorted(failed_paths)],
-            )
+            ), tolerated_paths)
     if judgement_layer in expected and seen != impacted:
-        return _refused(
+        return _with_tolerated(_refused(
             "judgement-missing", counts,
             checks=["judgement-missing:" + path for path in sorted(impacted - seen)],
-        )
+        ), tolerated_paths)
 
     # (9b) Adversarial findings are inert until every FAIL has one consistent claim.
     if "L-ADVERSARIAL" in expected:
@@ -317,36 +371,36 @@ def decide(
         adversarial_findings = adversarial_row.get("data", {}).get("findings", [])
         if any(not isinstance(item, Mapping) or item.get("blocking") is not False
                for item in adversarial_findings):
-            return _refused("adversarial-blocking", counts)
+            return _with_tolerated(_refused("adversarial-blocking", counts), tolerated_paths)
         required_claims = set()
         for item in adversarial_findings:
             if item.get("severity") == "FAIL":
                 if not isinstance(item.get("id"), str):
-                    return _refused("claim-inconsistent", counts)
+                    return _with_tolerated(_refused("claim-inconsistent", counts), tolerated_paths)
                 required_claims.add(item["id"])
         claim_findings = claim_row.get("data", {}).get("findings", [])
         claims = {}
         for item in claim_findings:
             if not isinstance(item, Mapping) or not isinstance(item.get("claim"), Mapping):
-                return _refused("claim-inconsistent", counts)
+                return _with_tolerated(_refused("claim-inconsistent", counts), tolerated_paths)
             claim_value = item["claim"]
             identity = claim_value.get("findingId")
             state = claim_value.get("state")
             if not isinstance(identity, str) or state not in {"confirmed", "rejected", "unverified"}:
-                return _refused("claim-inconsistent", counts)
+                return _with_tolerated(_refused("claim-inconsistent", counts), tolerated_paths)
             if identity not in required_claims:
-                return _refused("claim-unknown", counts)
+                return _with_tolerated(_refused("claim-unknown", counts), tolerated_paths)
             if identity in claims:
-                return _refused("claim-duplicate", counts)
+                return _with_tolerated(_refused("claim-duplicate", counts), tolerated_paths)
             claims[identity] = item
         missing_claims = sorted(required_claims - set(claims))
         if missing_claims:
-            return _refused(
+            return _with_tolerated(_refused(
                 "claim-missing", counts,
                 checks=["claim-missing:" + identity for identity in missing_claims],
-            )
+            ), tolerated_paths)
         if any(item["claim"]["state"] == "unverified" for item in claims.values()):
-            return _refused("claim-unadjudicated", counts)
+            return _with_tolerated(_refused("claim-unadjudicated", counts), tolerated_paths)
         for item in claims.values():
             state = item["claim"]["state"]
             if state == "confirmed":
@@ -354,7 +408,7 @@ def decide(
             else:
                 consistent = item.get("blocking") is False
             if not consistent:
-                return _refused("claim-inconsistent", counts)
+                return _with_tolerated(_refused("claim-inconsistent", counts), tolerated_paths)
 
     # (10) Fold only document FAIL and blocking-layer FAIL findings.
     policies = {row["id"]: row.get("blockingPolicy") for row in registry}
@@ -371,7 +425,7 @@ def decide(
                 blocking.append(
                     {"kind": "finding", "layerId": layer_id, "id": item.get("id")}
                 )
-    return _accepted("NEEDS_FIX" if blocking else "CONSISTENT", counts, blocking)
+    return _with_tolerated(_accepted("NEEDS_FIX" if blocking else "CONSISTENT", counts, blocking), tolerated_paths)
 
 
 def write_verdict(repo: Any, handle: Any, verdict: Mapping[str, Any], ts: str | None = None) -> dict[str, Any]:
