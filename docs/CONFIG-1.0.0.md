@@ -47,8 +47,8 @@ invalid value or failed restriction gives
 `config-invalid:worktree.tolerateChangesIn`; a non-object `worktree` gives
 `config-invalid:worktree`, and an unknown member gives
 `config-invalid:worktree.<member>`. A Git or corpus calculation failure keeps
-its own reason (for example, `git-failed`). These checks also run before a
-not-yet-sealed run is resumed. `docauditSchema` stays `"1.0"`; engines at
+its own reason (for example, `git-failed`). These checks also run when a run that stopped before its configuration was
+sealed is resumed. `docauditSchema` stays `"1.0"`; engines at
 1.2.1 and earlier reject the `worktree` key as `config-invalid:worktree`.
 
 A changed entry is tolerated at the gate only when it lies at or below a
