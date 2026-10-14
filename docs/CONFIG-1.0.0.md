@@ -349,9 +349,10 @@ the audited repository makes agy unusable, or null. A `capability.json` whose
 has none of the agy fields, `backendSelection`, or `agyRepoBlock`. The engine
 does not read the contract version; it reads the missing keys as agy unavailable
 with no selection. The home paths and authentication bytes are never recorded.
-Resume and gate read `capability.json`; they do not probe again. Workflow runs
-additionally own deterministic request, completion, judgement, and receipt files
-below `requests/` in the same run directory.
+Resume reads `capability.json` when the journal records `capability-detected`;
+otherwise it probes capability again. Gate reads `capability.json` without a
+new probe. Workflow runs additionally own deterministic request, completion,
+judgement, and receipt files below `requests/` in the same run directory.
 
 ## Journal state machine
 
@@ -475,9 +476,10 @@ the paths and give guidance.
 
 ### Recovering `tmp-conflict`
 
-The engine does not remove a report temporary file unless an unmatched
-`write-begin` proves the same device and inode. Any other leftover is
-`tmp-conflict` and is left untouched. The run is already closed as undecided
+The engine checks a leftover report temporary file only when the report is absent.
+It removes the file only if an unmatched `write-begin` records its device
+and inode; otherwise it reports `tmp-conflict` and leaves the file untouched.
+The run is already closed as undecided
 `report-publish-failed`, so resume is refused with `run-closed`. Stop audit
 processes, inspect the sibling `.tmp-<destination-basename>` outside the engine,
 and move it to a separate quarantine location. Confirm that the intended report
@@ -657,8 +659,8 @@ Every attempt appends one `model-call` evidence record before the layer's final
 `adapter-result`. It contains `callSeq`, relative `path`, `attempt`, `model`,
 `exit`, `timedOut`, `durationMs`, `outputBytes`, `valid`, and `reason`; for a
 Codex call `model` is `codex:<model>`.
-Codex records explicitly set `confirmed: true` because the engine observes the
-process completion.
+Codex records always set `confirmed: true`, including calls that failed to
+launch with reason `launch-failed`.
 `metrics.modelCalls` counts these records: `total` and `attempts` are the actual
 record count, with counts by layer and backend model plus impacted count and
 outcome. `confirmedTotal` counts records whose `confirmed` value is true; a
@@ -1091,9 +1093,11 @@ Backtick phrases are 2 through 80 characters and contain only Unicode letters
 or digits, spaces, or `._/@:#<>=()-`. Double-quoted phrases are normally 6
 through 200 characters with at least two Unicode alphanumeric words. The
 alternative for a phrase containing a non-ASCII alphanumeric character is 4
-through 200 characters with at least two alphanumeric characters. Empty
-phrases, control characters, phrases without an alphanumeric character,
-report-unsafe phrases, and case-folded exact matches of the following fixed
+through 200 characters with at least two alphanumeric characters. After
+surrounding whitespace is stripped, empty phrases, phrases containing a
+character in U+0000–U+001F or U+007F, phrases without an alphanumeric
+character, report-unsafe phrases, and case-folded exact matches of the
+following fixed
 stoplist are removed: `mapped`, `heuristic`, `both`, `full`, `self`, `skill`,
 `graphify`, `semantic`, `pass`, `warn`, `fail`, `consistent`, `needs_fix`,
 `needs fix`, `true`, `false`, `null`, `none`.

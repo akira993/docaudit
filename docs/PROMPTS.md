@@ -14,7 +14,7 @@ Use after the configuration exists (see [ADOPTION.md](ADOPTION.md), section 4).
 Run /docaudit:audit --full in this repository. When it finishes, open the published report and list every document it marked as failing with its summary; then, for each of them, show the evidence strings of its judgement from the run's evidence ledger under .claude/state/docaudit/runs/<runId>/ (for runs verified through Claude Code agents they are also in requests/<seq>/judgements/). Do not edit any document.
 ```
 
-Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` means capability detection found no usable backend (or the one you named with `--backend` cannot be used), which happens outside Claude Code without a working Codex CLI or a set-up agy. An `undecided` run that ends before verification starts (such as `backend-unavailable`) publishes no report, so there is nothing to open in that case. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
+Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` occurs when no `--backend` is named and capability detection finds no usable backend (outside Claude Code without a working Codex CLI or a set-up agy), or when the backend named with `--backend` cannot be used, including inside Claude Code. An `undecided` run that ends before verification starts (such as `backend-unavailable`) publishes no report, so there is nothing to open in that case. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
 
 ## 2. Fix what the first audit found, then repeat
 
@@ -48,7 +48,7 @@ Requires the Codex CLI to pass the availability check and `enabledLayers` to lis
 Run /docaudit:audit --profile extended --full. Report the verdict, then list the adversarial and security findings by severity, and for each confirmed claim show the evidence file and line.
 ```
 
-Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
+Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. An `undecided backend-failed` run means at least one document failed every attempt or a Codex call in `L-ADVERSARIAL`, `L-SECURITY`, or `L-CLAIM` failed. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
 
 ## 6. Migrate a legacy configuration
 
@@ -90,7 +90,7 @@ Outside Claude Code the engine needs the Codex backend or a set-up agy (see [ADO
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
-Read the last line of the output as JSON: `outcome` and `reportPath`. Exit status 0 covers `CONSISTENT`, `NEEDS_FIX`, `undecided`, and `REFUSED`; use `outcome` to decide, not the exit status. Exit status 3 means the engine refused to open a run and `reason` says why.
+Read the last line of the output as JSON and inspect `outcome`; `reportPath` appears only when a report was published (for example, `undecided backend-unavailable` has no report or `reportPath`). Exit status 0 covers `CONSISTENT`, `NEEDS_FIX`, `undecided`, and `REFUSED`; use `outcome` to decide, not the exit status. Exit status 3 means the engine refused to open a run and `reason` says why.
 
 To run the skill itself non-interactively, use Claude Code in print mode from the repository:
 

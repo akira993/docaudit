@@ -14,7 +14,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 このリポジトリで /docaudit:audit --full を実行して。終わったら公開された report を開き、失敗と判定された文書を要約と一緒に列挙して。その後、それぞれについて .claude/state/docaudit/runs/<runId>/ の証拠台帳にある judgement の証拠文字列を見せて（Claude Code の agent で検証した run では requests/<seq>/judgements/ にもある）。文書は編集しないで。
 ```
 
-期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は能力検出で使える backend がひとつも見つからなかった（または `--backend` で指名した backend を使えない）という意味で、Claude Code の外で Codex CLI も設定済みの agy も使えないときに起きます。検証の開始前に `undecided` で終わった run（`backend-unavailable` など）は report を公開しないので、その場合は開く report がありません。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
+期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は、`--backend` を指名せず Claude Code の外で Codex CLI も設定済みの agy も使えない場合、または `--backend` で指名した backend を使えない場合に起きます。後者は Claude Code の中でも起きます。検証の開始前に `undecided` で終わった run（`backend-unavailable` など）は report を公開しないので、その場合は開く report がありません。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
 
 ## 2. 最初の監査の指摘を直して、もう一度
 
@@ -48,7 +48,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、少なくとも 1 件の文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 呼び出しが失敗した場合に起きます。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 
@@ -90,7 +90,7 @@ Claude Code の外では engine に Codex backend か、設定済みの agy が�
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
-出力の最終行を JSON として読み、`outcome` と `reportPath` を使います。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。
+出力の最終行を JSON として読み、`outcome` を確認します。`reportPath` があるのは report が公開された場合だけです（例: `undecided backend-unavailable` には report も `reportPath` もありません）。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。
 
 skill 自体を非対話で動かすには、リポジトリで Claude Code を print mode で使います。
 
