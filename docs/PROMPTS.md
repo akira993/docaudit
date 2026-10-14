@@ -48,7 +48,7 @@ Requires the Codex CLI to pass the availability check and `enabledLayers` to lis
 Run /docaudit:audit --profile extended --full. Report the verdict, then list the adversarial and security findings by severity, and for each confirmed claim show the evidence file and line.
 ```
 
-Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. An `undecided backend-failed` run means at least one document failed every attempt or a Codex call in `L-ADVERSARIAL`, `L-SECURITY`, or `L-CLAIM` failed. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
+Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. An `undecided backend-failed` run means at least one document failed every attempt or a Codex assessment in `L-ADVERSARIAL`, `L-SECURITY`, or `L-CLAIM` failed every attempt. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
 
 ## 6. Migrate a legacy configuration
 
