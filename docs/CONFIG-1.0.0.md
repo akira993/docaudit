@@ -217,12 +217,16 @@ cannot participate in flip identity matching.
 
 The state root is `.claude/state/docaudit/`.  C-RUN owns `mutex`, `lease`,
 `lease.json`, `run-open.json`, and `runs/<runId>/journal.jsonl`. C-HISTORY owns
-`anchors/<profile>.json` and `history.jsonl`. An anchor records the accepted run
+`anchors/<profile>.json` and `history.jsonl`. An anchor records the accepted run's
 ID and time, contract version, HEAD (or `null`), snapshot, sorted documents,
-and snapshot digest. A history line has `seq`, `ts`, `kind`, `runId`, and object
-`data`. Known kinds are `outcome`, `judgement`, `flip`, `anchor`, `legacy`, and
-`migration`;
-unknown kinds are retained and ignored.
+and snapshot digest. Anchors written from 1.5.0 also record the accepted run's
+`resolvedBackendModel` and `engineVersion`; earlier anchors lack these fields.
+Full and incremental runs read the profile anchor for the report baseline;
+a full run with an unreadable anchor continues without a baseline, while
+later recording follows the existing rules. A history line has `seq`, `ts`,
+`kind`, `runId`, and object `data`. Known kinds are `outcome`, `judgement`,
+`flip`, `anchor`, `legacy`, and `migration`; unknown kinds are retained and
+ignored.
 
 An outcome event has optional `acceptBaseline: true` only when `--accept-baseline`
 was applied to a full `NEEDS_FIX` run whose blocking items are all `L-DOC`
@@ -243,19 +247,32 @@ different name, then begin a new history file.
 
 ## Report templates and publication
 
-`report.path` ends in `.md` and contains exactly one `<YYYY-MM-DD>` and at most
-one `[_NN]` across the full path. If the date is in the basename, the text
+`report.path` ends in `.md` and contains exactly one `<YYYY-MM-DD>` and at most one
+`[_NN]` across the full path. If the date is in the basename, the text
 before it must be nonempty; if the date is in a directory, the entire basename
 must be nonempty. Invalid values are `config-invalid:report.path`. The date
-comes from the run ID; collisions receive
-`_02`, `_03`, and so on. Publication never replaces an existing file and returns
-a receipt with relative path, SHA-256, and publication time.
+comes from the run ID; collisions receive `_02`, `_03`, and so on through
+`_1000`. Publication never replaces an existing file and returns a receipt
+with relative path, SHA-256, and publication time. If every report name is
+occupied, the engine returns status 4 with `path-exhausted` and that run's
+`runId`, leaving the run open. Move an older report to free a name, then
+resume that run.
 
-Reports have fixed front matter fields `title`, `description`, `category`,
-`created`, `updated`, `version`, plus `docaudit`, and sections Run, 対象,
+Reports have fixed front matter fields `title`, `description`, `category`, plus
+`created`, `updated`, `version`, and `docaudit`, with sections Run, 対象,
 所見, 判定, Anchor, 計測, and 証跡. When `auditReportsInCorpus` is true a
 report may become a self target next run. Engine-fixed front matter does not
-automatically satisfy `documentChecks.frontMatterFields`.
+automatically satisfy `documentChecks.frontMatterFields`. The Run section
+places baseline immediately after `- anchor:`. Full and
+incremental runs derive it from the profile anchor. Without one it prints
+`- baseline: なし`; with one, `- baseline: <runId>（判定役 <M>、engine <V>）`.
+Older anchors use `runs/<runId>/manifest.json` for missing values; unreadable
+values are `不明` and do not count as differences. Only changed known values add
+`- 基準との違い: <parts>。内容が同じ文書でも判定が変わることがあります。`
+For example: `- baseline: 20261014T105421Z-c82d9b3f（判定役 codex:gpt-6-luna、engine 1.3.1）`
+`- 基準との違い: 判定役 codex:gpt-6-luna → codex:gpt-6.1-sol、engine 1.3.1 → 1.5.0。内容が同じ文書でも判定が変わることがあります。`
+Runs sealed by engines before 1.5.0 have no baseline key and omit these lines
+when resumed.
 
 Before publication, each finding-line summary is redacted token by token: a token
 containing a forbidden outside-repository path fragment becomes `<path>`, and an
@@ -570,19 +587,26 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 {"nextAction":"done|abort","runId":"...","outcome":"...","reason":"...","reportPath":"..."}
 ```
 
-`reason` and `reportPath` are omitted when not applicable. Exit status 0 means
-the engine finished normally: the run reached `closed`, it handed the run
-to the Workflow backend while the run remains open, or it asked for a backend
-choice without opening a run (see below). Status 3 means refusal before opening a run; its
-`nextAction` is `abort`, `runId` and `outcome` are null, and `reason` identifies
-the refusal (`backend-invalid` for a `--backend` value other than `agy`,
-`codex`, or `claude`, and `fast-requires-codex` for `--fast` without
-`--backend codex`, are among them). Status 4 is reserved for a run that was opened but cannot proceed
-or record an outcome, such as an operating-system error or rejected write; it
-does not reach `closed` and prints an `abort` result. Recovery-detected
-integrity failures are recorded in history and closed with status 0. Resume
-also reconciles a recorded outcome and any missing anchor step before closing
-it.
+`reason` and `reportPath` are omitted when not applicable. Exit status 0 means the engine finished normally:
+the run reached `closed`, it handed the run to the Workflow backend while the
+run remains open, or it asked for a backend choice without opening a run (see
+below). Status 3 means refusal before opening a run or before starting a resume;
+its `nextAction` is `abort`, `runId` and `outcome` are null, and `reason`
+identifies the refusal. Argument refusals include `backend-invalid` for a
+`--backend` value other than `agy`, `codex`, or `claude`, `fast-requires-codex`
+for `--fast` without `--backend codex`, and `accept-baseline-requires-full`
+for `--accept-baseline` without `--full`. An unsupported platform can return
+`io-unsupported-platform`. Resume refusals before the transition to running
+include `run-not-found`, `run-closed`, `resume-in-progress`, and `mutex-timeout`;
+a timeout while opening a run also returns 3 with a null `runId`. For
+engine-handled interruptions after a run opens or a resume starts, status 4
+means the run cannot proceed or record an outcome, including a later
+`mutex-timeout` or report-name exhaustion (`path-exhausted`). The `abort`
+result carries that run's `runId`, and the run stays open for resume or abandon;
+it does not reach `closed`. Operating-system errors and rejected writes can
+also interrupt an opened run. Recovery-detected integrity failures are
+recorded in history and closed with status 0. Resume also reconciles a
+recorded outcome and any missing anchor step before closing it.
 
 When resume sees a recorded `NEEDS_FIX` outcome with a report receipt, it
 revalidates the manifest and compares the acceptance derived from the manifest,
@@ -655,12 +679,20 @@ Such a row is still identity-checked, makes an incomplete adapter undecided,
 does not participate in gate folding, and is not copied to judgement or flip
 history. A successful row may additionally carry its string-array `evidence`.
 
-Every attempt appends one `model-call` evidence record before the layer's final
-`adapter-result`. It contains `callSeq`, relative `path`, `attempt`, `model`,
-`exit`, `timedOut`, `durationMs`, `outputBytes`, `valid`, and `reason`; for a
-Codex call `model` is `codex:<model>`.
-Codex records always set `confirmed: true`, including calls that failed to
-launch with reason `launch-failed`.
+Every attempt appends one `model-call` evidence record before the layer's final `adapter-result`.
+It contains `callSeq`, relative `path`, `attempt`, `model`, `exit`, `timedOut`,
+`durationMs`, `outputBytes`, `valid`, and `reason`; for a Codex call `model` is
+`codex:<model>`. Failed Codex and agy calls (`reason` not null) may add
+`stderrTail` from the CLI error output; successful calls, missing or empty
+output, and an empty processed tail omit the key. The last 2048 bytes are read.
+If output is longer, bytes through the first newline are dropped; without a
+newline, bytes through the first space or tab are dropped; without either,
+the key is omitted. Invalid UTF-8 is replaced, ANSI sequences are removed,
+and controls other than newline and tab become spaces. Outside-repository
+paths, email addresses, and ASCII runs of 32 or more letters, digits,
+`_+/=-` are redacted. After trimming, at most the last 2048 characters are
+retained. Codex records always set `confirmed: true`, including calls that
+failed to launch with reason `launch-failed`.
 `metrics.modelCalls` counts these records: `total` and `attempts` are the actual
 record count, with counts by layer and backend model plus impacted count and
 outcome. `confirmedTotal` counts records whose `confirmed` value is true; a
