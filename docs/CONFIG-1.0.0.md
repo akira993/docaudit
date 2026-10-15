@@ -687,10 +687,12 @@ It contains `callSeq`, relative `path`, `attempt`, `model`, `exit`, `timedOut`,
 output, and an empty processed tail omit the key. The last 2048 bytes are read.
 If output is longer, bytes through the first newline are dropped; without a
 newline, bytes through the first space or tab are dropped; without either,
-the key is omitted. Invalid UTF-8 is replaced, ANSI sequences are removed,
-and controls other than newline and tab become spaces. Outside-repository
-paths, email addresses, and ASCII runs of 32 or more letters, digits,
-`_+/=-` are redacted. After trimming, at most the last 2048 characters are
+the key is omitted. Invalid UTF-8 is replaced, ANSI CSI sequences are removed,
+and controls other than newline and tab become spaces. A whitespace-separated
+token containing a forbidden outside-repository path fragment becomes
+`<path>`, an email address becomes `<email>`, and an ASCII run of 32 or more
+letters, digits, `_+/=-` becomes `<secret>`. After trimming, at most the last
+2048 characters are
 retained. Codex records always set `confirmed: true`, including calls that
 failed to launch with reason `launch-failed`.
 `metrics.modelCalls` counts these records: `total` and `attempts` are the actual

@@ -217,3 +217,32 @@ class StderrTailTests(unittest.TestCase):
                                 cancel=threading.Event(),
                             )
             self.assertEqual(records[0]["stderrTail"], "agy failed")
+
+    def test_agy_success_does_not_add_stderr_tail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            records = []
+
+            def successful_run_group(argv, **kwargs):
+                Path(kwargs["stderr_path"]).write_text("ignored on success")
+                Path(kwargs["stdout_path"]).write_text(
+                    '{"status": "SUCCESS", "denied_actions": [], "structured_output": {}}'
+                )
+                return _result(0)
+
+            context = _context(directory, records)
+            with mock.patch.dict(os.environ, {"AGY_HOME": directory}):
+                with mock.patch.object(c_agy.c_cap, "find_executable", return_value="agy"):
+                    with mock.patch.object(c_agy, "to_agy_prompt", return_value="prepared"):
+                        with mock.patch.object(c_agy.procs, "run_group", side_effect=successful_run_group):
+                            c_agy.call(
+                                context,
+                                prompt="prompt",
+                                schema={"type": "object"},
+                                validate=lambda value: None,
+                                doc_id=None,
+                                timeout_sec=5,
+                                attempts=1,
+                                cancel=threading.Event(),
+                            )
+            self.assertNotIn("stderrTail", records[0])
+            self.assertTrue(records[0]["valid"])

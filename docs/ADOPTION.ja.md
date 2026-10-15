@@ -52,7 +52,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 1. `corpus.docGlobs`: 監査する文書。生成物や取り込んだ文書は `corpus.excludeDocGlobs` で除外します。
 2. `changes.diffGlobs`: 変更が監査を起動する file。通常はソース・設定・文書のディレクトリをまとめて指定します。
 3. `impact.map`: ソース領域ごとに最低 1 項目（第 5 節）。
-4. `report.path`: `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む Markdown の path。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。report のディレクトリは retrieval 後の run 準備中に作られ、report を公開せずに終わっても残ります。それより前に拒否された run では作られません。report は上書きされず、同じ名前があれば `_02` から `_1000` までの最初の空き番号を、`[_NN]` がある位置か、無ければ日付の直後に付けます。すべて埋まると、engine が扱う中断では終了値 4・`path-exhausted`・開いた run の `runId` を返し、run は開いたままです。古い report を動かして名前を空け、その run を再開します。
+4. `report.path`: `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む Markdown の path。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。report のディレクトリは retrieval 後の run 準備中に作られ、report を公開せずに終わっても残ります。それより前に拒否された run では作られません。report は上書きされず、同じ名前があれば `_02` から `_1000` までの最初の空き番号を、`[_NN]` がある位置か、無ければ日付の直後に付けます。すべて埋まると終了値 4・`path-exhausted`・開いた run の `runId` を返し、run は開いたままです。古い report を動かして名前を空け、その run を再開します。
 
 `extended` profile を使う予定がなければ `enabledLayers` は `["L-SCOPE", "L-DOC", "L-PROJECT"]` のままにし（第 8 節）、`documentChecks.frontMatterFields` と `documentChecks.indexFiles` は文書がその規約に従うようになるまで空にしておきます。未知のキーは拒否されるので、綴り間違いは無視されずに `config-invalid:<detail>` として検証に失敗します。
 
@@ -282,7 +282,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided backend-failed` | Codex・agy で検証した文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認し、一時ディレクトリも確認する。失敗した Codex・agy の試行では、`model-call` 記録に `stderrTail` があればエラー出力の末尾も確認する |
 | `undecided external-incomplete` | Claude Code の agent で検証した文書が 3 回目の request の後も未解決 | request と response の記録を確認し、外部の処理を直して再実行する |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
-| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにする・corpus 外の file なら `worktree.tolerateChangesIn` でその場所を許す・再実行する |
+| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにする・corpus 外の file で、その場所が Git に無視され追跡 file を含まないなら、代わりにその場所を `worktree.tolerateChangesIn` で許してもよい（条件は上の説明のとおり）・再実行する |
 | `undecided sandbox-unavailable` | 空でない `projectChecks` を Darwin 以外で設定した・`/usr/bin/sandbox-exec` がない・`/usr/bin/true` の事前確認を起動できないか、0 以外で終わるか、20 秒で時間切れになる | Linux では `projectChecks` を空にする・macOS では `sandbox-exec` または事前確認の実行環境を直して再実行する |
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |

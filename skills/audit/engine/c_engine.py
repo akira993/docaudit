@@ -1118,8 +1118,8 @@ def _drive_resume(repo, handle, guard, dependencies):
     guard.bind_run(handle.run_id)
     files, directories = _stage1(handle.run_id)
     guard.allow(paths=files, mkdir_paths=directories)
-    journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
     try:
+        journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
         c_run.transition(handle, "running")
     except c_run.RunRejected as exc:
         return _next(3, "abort", None, None, exc.reason)
@@ -1342,8 +1342,9 @@ def resume(repo_root, run_id: str, deps: EngineDeps | None = None):
                     return _drive_resume(repo, handle, guard, dependencies)
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
-                except (OSError, c_io.IoRejected, c_run.RunRejected, c_report.ReportPublishFailed,
-                        c_history.HistoryRejected, c_retrieval.RetrievalRejected) as exc:
+                except (OSError, c_io.IoRejected, c_evidence.EvidenceRejected,
+                        c_history.HistoryRejected, c_retrieval.RetrievalRejected,
+                        c_run.RunRejected, c_report.ReportPublishFailed) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
             finally:
                 if handle is not None and handle.lease_fd >= 0:
