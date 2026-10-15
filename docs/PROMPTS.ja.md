@@ -30,7 +30,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 直前の commit で file を変更した。/docaudit:audit を実行して、影響を受けた文書・verdict・report の path を教えて。
 ```
 
-期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更の影響文書が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も、削除されたものを除き、常に数えられます。
+期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更された文書と `impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck` で追加された文書の合計が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も、削除されたものを除き、常に数えられます。
 
 ## 4. focused profile での素早い確認
 
@@ -48,7 +48,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、少なくとも 1 件の文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex による評価がすべての試行に失敗した場合に起きます。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、Codex・agy で検証した文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった場合に起きることがあります。Claude Code の agent で検証した文書が 3 回目の request の後も未解決なら、代わりに `undecided external-incomplete` で終わります。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 
@@ -80,7 +80,7 @@ skill は前の session から残った run を回復しないので、明示的
 前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が `resume-in-progress` で拒否されたら別の process が終わるのを待って再度再開して。`run-not-found` または `run-closed` ならその ID の開いている run がないので止めて伝えて。それ以外の理由（`history-corrupt` を含む）で再開が失敗し続けるなら、履歴は自分で修復せず、同じコマンドに --abandon を付けて 1 回試し、成功・失敗のいずれでも止めて、再開と放棄の両方の結果を伝えて。
 ```
 
-期待: run が `closed` に到達し、次の監査を始められます。放棄は verdict なしで run を closed として記録し（`undecided abandoned`）、anchor は動きません。
+期待: run が `closed` に到達し、次の監査を始められます。放棄は verdict なしで run を closed として記録し（`undecided abandoned`）、anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。anchor file だけが壊れている場合は放棄できます。
 
 ## 9. 定期実行・非対話での実行
 

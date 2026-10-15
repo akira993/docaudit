@@ -30,7 +30,7 @@ Expected: `CONSISTENT` once every document passes and no blocking finding remain
 I changed the files in the last commit. Run /docaudit:audit and tell me which documents were impacted, the verdict, and the report path.
 ```
 
-Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the change impacted more documents than `impact.maxImpactedDocs` allows: run with `--full`, raise `impact.maxImpactedDocs`, or narrow the routes that add documents (`impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck`); changed documents themselves always count unless they were deleted.
+Expected: `CONSISTENT` when the documents still match, `NEEDS_FIX` with the failing documents otherwise. `undecided anchor-missing` means this profile has no anchor yet: run prompt 1 with `--full` (or `--full --accept-baseline`) first. `undecided impact-limit` means the total of changed documents and documents added through `impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck` exceeds `impact.maxImpactedDocs`: run with `--full`, raise `impact.maxImpactedDocs`, or narrow the routes that add documents (`impact.map`, `impact.ssotSources`, `impact.heuristics`, and `changes.regressionRecheck`); changed documents themselves always count unless they were deleted.
 
 ## 4. Quick check with the focused profile
 
@@ -48,7 +48,7 @@ Requires the Codex CLI to pass the availability check and `enabledLayers` to lis
 Run /docaudit:audit --profile extended --full. Report the verdict, then list the adversarial and security findings by severity, and for each confirmed claim show the evidence file and line.
 ```
 
-Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. An `undecided backend-failed` run means at least one document failed every attempt or a Codex assessment in `L-ADVERSARIAL`, `L-SECURITY`, or `L-CLAIM` failed every attempt. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
+Expected: `CONSISTENT` or `NEEDS_FIX` with the confirmed claims marked as blocking. An `undecided backend-failed` run can mean a document verified through Codex or agy failed every attempt, or a Codex assessment in `L-ADVERSARIAL`, `L-SECURITY`, or `L-CLAIM` failed every attempt or could not create a private temporary directory before its first attempt. A document verified through Claude Code agents that remains unresolved after the third request instead ends `undecided external-incomplete`. If the engine refuses with `capability-missing:<layer>`, add that layer to `enabledLayers`. If the run ends `undecided codex-unavailable` or `undecided workflow-adapter-unavailable`, the Codex CLI did not pass the availability check, and `L-SECURITY`, `L-ADVERSARIAL`, and `L-CLAIM` run only on Codex (`workflow-adapter-unavailable` when the documents were verified through Claude Code agents, `codex-unavailable` when through agy).
 
 ## 6. Migrate a legacy configuration
 
@@ -80,7 +80,7 @@ The skill does not recover a run left over from an earlier session, so do it exp
 docaudit refused to start because an earlier run is still open; its result line gave the reason <run-in-progress|run-awaiting-external|run-interrupted-resume-required>. Read .claude/state/docaudit/run-open.json and tell me the run ID. Decide by the reason, not by the state in that file: if the reason is run-in-progress, tell me to wait, because another process holds the run. If it is run-awaiting-external or run-interrupted-resume-required, resume it with: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . If the result says nextAction invoke-workflow, run the docaudit verification workflow for that request and resume again. If resuming returns `resume-in-progress`, wait for the other process and retry; for `run-not-found` or `run-closed`, stop and report that no run with that ID is open; if resuming keeps failing for another reason, including `history-corrupt`, do not repair history yourself; try the same command with --abandon once, then stop and report both results, whether abandon succeeds or fails.
 ```
 
-Expected: the run reaches `closed`, and the next audit can start. Abandoning records the run as closed without a verdict (`undecided abandoned`); the anchor does not move.
+Expected: the run reaches `closed`, and the next audit can start. Abandoning records the run as closed without a verdict (`undecided abandoned`); the anchor does not move. If `history.jsonl` itself is corrupt, abandonment fails with `history-corrupt` (exit status 4), leaving the run open; repair history first. A corrupt anchor file alone does not prevent abandonment.
 
 ## 9. Scheduled or non-interactive runs
 

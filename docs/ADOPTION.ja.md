@@ -146,7 +146,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 - `--backend` も `--ask-backend` もないとき（素のコマンド、または上の最後の場合）、engine は Codex、agy、Claude Code の agent の順で最初に使える backend を取ります。したがって、agy は使えるが Codex が動かない環境では、主担当が Claude Code の agent から agy に変わります。Claude Code の agent を使い続けるには `--backend claude` を付けます。
 - 選択は run に書かれる（`run-options` 記録と `capability.json` の `backendSelection`）ので、`resume` でも同じ backend・同じ Fast 設定になります。
 
-Codex backend は model `gpt-6.1-sol` を reasoning effort `medium` で動かし、Fast では `-c service_tier=priority` が加わります。文書をどの backend で検証していても、`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の Codex 呼び出しは、この段落の model と reasoning effort を使います。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6.1-sol` を使えず、影響文書がある場合は、呼び出しが失敗して文書の判定はなく、run は `undecided backend-failed` で終わります。影響文書が 0 件なら model は呼び出されません。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
+Codex backend は model `gpt-6.1-sol` を reasoning effort `medium` で動かし、Fast では `-c service_tier=priority` が加わります。文書の検証では、1 回の呼び出しは最大 900 秒・文書ごとに最大 3 回の試行・同時に最大 4 回の呼び出しです。Codex のアカウントが `gpt-6.1-sol` を使えず、影響文書がある場合は、呼び出しが失敗して文書の判定はなく、run は `undecided backend-failed` で終わります。影響文書が 0 件なら model は呼び出されません。文書をどの backend で検証していても、`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の Codex 呼び出しは、この model と reasoning effort を使います。3 層の評価は 1 回の呼び出しが最大 900 秒で、1 評価につき最大 3 回試します。`L-ADVERSARIAL` は影響文書ごとに 1 評価を同時に最大 4 回・`L-SECURITY` は影響文書全体で 1 評価・`L-CLAIM` は `L-ADVERSARIAL` の `FAIL` 所見ごとに 1 評価を順に行います。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
 
 Claude Code の agent backend は判定役の agent `docaudit:doc-impact-verifier` を model `claude-sonnet-5-5`、effort `high` で動かします。
 
@@ -260,7 +260,7 @@ skill は前の session から残った run を回復しません。手作業か
 
 ## 9. プロジェクトチェック
 
-`L-PROJECT` は封印 corpus に 4 種類の読み取り専用チェックを適用します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
+`L-PROJECT` は封印 corpus に 4 種類の読み取り専用チェックを適用します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.indexFiles` に挙げた文書自身は orphan と報告されません。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
 
 `projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、`/dev/null` を除き private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。Linux では `projectChecks` を空にしてください。空でないと run は `undecided sandbox-unavailable` で終わります。
 
@@ -279,10 +279,11 @@ skill は前の session から残った run を回復しません。手作業か
 | `NEEDS_FIX`（`--full --accept-baseline` で受理） | FAIL が文書判定だけ | anchor は前進した。既知 FAIL は文書を直したときに再判定 |
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、使える agy もなく、Claude Code の中でもない）、または `--backend` で指名した backend を使えない | Codex を install または修復するか、agy を設定する（第 7 節）か、Claude Code の中で実行。`--backend` で指名した backend を使えない場合は、その backend を直すか、`--backend` を外すか、別の使える backend を指名する |
-| `undecided backend-failed` | 少なくとも 1 件の文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex による評価がすべての試行に失敗した | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認する |
+| `undecided backend-failed` | Codex・agy で検証した文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認し、一時ディレクトリも確認する |
+| `undecided external-incomplete` | Claude Code の agent で検証した文書が 3 回目の request の後も未解決 | request と response の記録を確認し、外部の処理を直して再実行する |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
-| `undecided corpus-unreadable` | 検証用 mirror の準備中に corpus 内の文書を読めなかった（Claude Code の agent backend） | file を読めるようにする（権限、壊れた symlink）して再実行 |
-| `undecided sandbox-unavailable` | `sandbox-exec` のない環境で `projectChecks` を設定 | Linux では `projectChecks` を空に |
+| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにする・corpus 外の file なら `worktree.tolerateChangesIn` でその場所を許す・再実行する |
+| `undecided sandbox-unavailable` | 空でない `projectChecks` を Darwin 以外で設定した・`/usr/bin/sandbox-exec` がない・`/usr/bin/true` の事前確認を起動できないか、0 以外で終わるか、20 秒で時間切れになる | Linux では `projectChecks` を空にする・macOS では `sandbox-exec` または事前確認の実行環境を直して再実行する |
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided abandoned` | run が放棄された | 再実行 |
@@ -295,7 +296,7 @@ skill は前の session から残った run を回復しません。手作業か
 - **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で、親ディレクトリ参照の `..` という path セグメント（例: `a/../b`）を含まず、`report.path` は `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む必要があります。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。`config-invalid:worktree.tolerateChangesIn` なら、path の書き方と Git が無視するかを調べ、追跡 file・corpus 文書・engine の設定・state・report の場所を含まないか確認してください。
 - **`config-needs-migration`。** legacy file しかありません。`migrate` を実行してください（第 6 節）。
 - **最初の run で front matter や orphan の警告が大量に出る。** どれも non-blocking です。時間をかけて直すか、`documentChecks.layerGlobs` で文書を除外してください。
-- **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままなので、次の監査の前に再開か放棄をします。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
+- **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままです。`history.jsonl` 自体が壊れている間は放棄も失敗するため、先に履歴を直してから次の監査の前に再開か放棄をします。anchor file だけが壊れている場合は放棄できます。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
 - **`mutex-timeout`。** 別の engine process が state の操作（例: `migrate`）をしています。終了後にやり直し、`run-open.json` に開いたままの run があれば再開または放棄してください。**`run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
 - **想定外の file がリポジトリに書かれた。** engine が書くのは report と `.claude/state/docaudit/` 配下の state で、repo 直下の `.mdq/` は作業木の走査から外します。別のツールが run 中に書いても、列挙した場所の中にあり、gate 時点で Git が無視し、封印した corpus と snapshot の外にある変化だけを大目に見ます。それ以外の変化は、新しく作った親ディレクトリも含めて `REFUSED worktree-modified` です。回避策は、対象となる場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移すことです。entry 数か byte 数の上限を超えた場合は、代わりに `undecided worktree-too-large` になります。

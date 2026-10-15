@@ -537,7 +537,7 @@ This flag is absent if Git classification fails or the path difference is
 unavailable. `C-GATE` is the only verdict writer;
 it appends `verdict-intent` before exclusively publishing `verdict.json`.
 
-Pre-gate undecided reasons `backend-unavailable`, `impact-limit`,
+Pre-gate undecided reasons `backend-unavailable`, `anchor-missing`, `impact-limit`,
 `snapshot-too-large`, `corpus-unreadable`, `git-failed`, and
 `worktree-too-large` do not publish a report or verdict. Gate-time undecided
 outcomes do publish a report. Report rendering shows the REFUSED reason and
@@ -782,9 +782,11 @@ these fields:
 
 `indexDb` and `indexCwd` are absolute paths when method is `index`; otherwise
 they are null. `indexLang` is `ja-jp` for an index and null for grep. `changed`
-contains at most 100 repository-relative paths. Immediately after writing the
-request, the engine appends `request-issued` with `requestSeq` and the file
-SHA-256.
+contains at most 100 repository-relative paths. After writing the request
+file, the engine appends `model-call-reserved` to the journal, then appends
+`request-issued` with `requestSeq` and the file SHA-256. If the reservation
+exceeds the limit, it appends `model-call-limit` and stops: the request file
+remains, but there is no `request-issued` entry.
 
 The Workflow script itself does not read or write files. It receives only
 `runId` and the repository-relative `requestPath`, and first checks that the
@@ -969,8 +971,9 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
   non-blocking WARN only when at least one base counted and none of the
   tried forms names an existing repository-relative target.
 - `orphan` issues a non-blocking WARN when a corpus document has no direct
-  one-hop link from another corpus document or an index file. One-document
-  corpora record `orphan: skipped`.
+  one-hop link from another corpus document or an index file. Documents listed
+  in `documentChecks.indexFiles` are exempt. One-document corpora record
+  `orphan: skipped`.
 
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
 documents from that check. Links inside code fences or inline code are ignored,
@@ -1102,8 +1105,10 @@ stoplist are removed: `mapped`, `heuristic`, `both`, `full`, `self`, `skill`,
 `graphify`, `semantic`, `pass`, `warn`, `fail`, `consistent`, `needs_fix`,
 `needs fix`, `true`, `false`, `null`, `none`.
 
-At most the first 200 unique safe phrases are retained; excess unique phrases
-increment `phraseTruncated`. Retained phrases are sorted lexically before the
+At most the first 200 unique safe phrases are retained. Before that limit,
+unsafe phrases are discarded without increasing `phraseTruncated`; after 200
+are retained, each further unique phrase increments `phraseTruncated` before
+its safety is checked. Retained phrases are sorted lexically before the
 corpus is scanned. Reports are excluded. Matching is case-sensitive and
 line-based, with one-based line numbers and at most 20 findings per phrase.
 Further matches are counted in `truncated[phrase]` and `truncatedTotal`.
