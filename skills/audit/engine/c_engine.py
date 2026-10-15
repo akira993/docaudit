@@ -748,11 +748,12 @@ def _non_null_judgement_count(ledger):
     )
 
 
-def _anchor(handle, scope, published_at):
+def _anchor(handle, scope, published_at, manifest):
     return {
         "runId": handle.run_id, "acceptedAt": published_at, "contractVersion": CONTRACT_VERSION,
         "headCommit": scope.get("headCommit"), "snapshot": scope.get("snapshot", {}),
         "documents": sorted(scope.get("documents", ())), "snapshotDigest": scope.get("snapshotDigest"),
+        "resolvedBackendModel": manifest["resolvedBackendModel"], "engineVersion": manifest["engineVersion"],
     }
 
 
@@ -796,7 +797,7 @@ def _record(repo, handle, dependencies, journal, manifest, scope, verdict, ledge
     else:
         data.update({"outcome": "undecided", "reason": reason or verdict.get("reason")})
     if receipt is not None:
-        data["anchorCandidate"] = _anchor(handle, scope, published)
+        data["anchorCandidate"] = _anchor(handle, scope, published, manifest)
     if reason is None and isinstance(receipt, dict) and outcome == "NEEDS_FIX" and _baseline_eligible(manifest, verdict):
         data["acceptBaseline"] = True
     result = c_history.finalize(repo, {"runId": handle.run_id, "ts": _stamp(dependencies), "data": data})
@@ -1118,7 +1119,10 @@ def _drive_resume(repo, handle, guard, dependencies):
     files, directories = _stage1(handle.run_id)
     guard.allow(paths=files, mkdir_paths=directories)
     journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
-    c_run.transition(handle, "running")
+    try:
+        c_run.transition(handle, "running")
+    except c_run.RunRejected as exc:
+        return _next(3, "abort", None, None, exc.reason)
     journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
     for recovered in handle.recovered_tmp:
         journal.append(c_run.append_journal(handle, "tmp-recovered", {"path": recovered}))
@@ -1311,7 +1315,7 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
                     return _drive_new(repo, handle, guard, profile, mode, dependencies, config, accept_baseline, {"backend": backend, "fast": fast})
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
-                except (OSError, c_io.IoRejected,
+                except (OSError, c_io.IoRejected, c_run.RunRejected, c_report.ReportPublishFailed,
                         c_evidence.EvidenceRejected, c_history.HistoryRejected,
                         c_retrieval.RetrievalRejected) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
@@ -1338,9 +1342,9 @@ def resume(repo_root, run_id: str, deps: EngineDeps | None = None):
                     return _drive_resume(repo, handle, guard, dependencies)
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
-                except (OSError, c_io.IoRejected, c_evidence.EvidenceRejected,
+                except (OSError, c_io.IoRejected, c_run.RunRejected, c_report.ReportPublishFailed,
                         c_history.HistoryRejected, c_retrieval.RetrievalRejected) as exc:
-                    return _next(4, "abort", run_id, None, getattr(exc, "reason", type(exc).__name__))
+                    return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
             finally:
                 if handle is not None and handle.lease_fd >= 0:
                     c_retrieval.cleanup(repo, handle.run_id, handle.state_dir_fd)

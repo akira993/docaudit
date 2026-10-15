@@ -7,7 +7,7 @@ import os
 import re
 import stat
 
-from . import c_evidence, c_io, procs
+from . import c_evidence, c_io, c_run, procs
 from .contract import CONTRACT_VERSION
 
 MAX_SNAPSHOT_ENTRIES = 20_000
@@ -150,11 +150,34 @@ def propose_profile(mode, changed, impacted, diff_bytes, last_verdict, profile_t
     if mode=="full" or len(changed)>10 or len(impacted)>15 or diff_bytes>65536 or last_verdict!="CONSISTENT": return default
     if any(any(token in row["path"].lower() for token in SENSITIVE) for row in changed): return default
     return focused
+def _baseline(repo, anchor):
+    if not isinstance(anchor,dict): return None
+    run_id=anchor.get("runId")
+    if not isinstance(run_id,str) or not c_run._valid_run_id(run_id): return None
+    keys=("resolvedBackendModel","engineVersion")
+    values={key:anchor.get(key) if isinstance(anchor.get(key),str) else None for key in keys}
+    if any(value is None for value in values.values()):
+        rel=f"{c_run.STATE_REL}/runs/{run_id}/manifest.json"
+        try:
+            manifest=json.loads(c_io.read_bytes(repo,rel,max_bytes=1024*1024))
+        except Exception:
+            manifest=None
+        if isinstance(manifest,dict):
+            for key in keys:
+                value=manifest.get(key)
+                if values[key] is None and isinstance(value,str): values[key]=value
+    return {"runId":run_id,**values}
 def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profile_table):
     """Compute a profile-specific scope from one already captured worktree view."""
     f=_facts(facts)
     from . import c_history
-    anchor=c_history.read_anchor(repo,profile_name) if mode != "full" else None
+    if mode == "full":
+        try: baseline_anchor=c_history.read_anchor(repo,profile_name)
+        except Exception: baseline_anchor=None
+        anchor=None
+    else:
+        anchor=c_history.read_anchor(repo,profile_name)
+        baseline_anchor=anchor
     if mode != "full" and anchor is None: raise ScopeRejected("anchor-missing")
     changed=[] if mode=="full" else compute_changed(repo,anchor,snapshot,corpus,f["changes"]["diffGlobs"])
     impacted,warnings=compute_impacted(repo,f,profile_name,mode,corpus,changed)
@@ -166,7 +189,7 @@ def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profil
     events=list(c_history.read_history(repo)); default=next(x["name"] for x in profile_table if x["default"])
     prior=next((x["data"].get("verdict") for x in reversed(events) if x["kind"]=="outcome" and x["data"].get("profileName")==default),None)
     proposed=propose_profile(mode,changed,impacted,diff_bytes,prior,profile_table)
-    return {"mode":mode,"profileName":profile_name,"anchor":None if anchor is None else {k:anchor.get(k) for k in ("runId","acceptedAt","headCommit","snapshotDigest")}|{"documentsCount":len(anchor.get("documents",[]))},"corpus":corpus,"changed":changed,"impacted":impacted,"changeSetHash":_digest(change_payload),"snapshot":snapshot,"snapshotDigest":digest,"corpusDigest":_digest(corpus),"documents":corpus,"headCommit":head,"diffBytes":diff_bytes,"proposedProfile":proposed,"warnings":sorted(warnings)}
+    return {"mode":mode,"profileName":profile_name,"anchor":None if anchor is None else {k:anchor.get(k) for k in ("runId","acceptedAt","headCommit","snapshotDigest")}|{"documentsCount":len(anchor.get("documents",[]))},"baseline":_baseline(repo,baseline_anchor),"corpus":corpus,"changed":changed,"impacted":impacted,"changeSetHash":_digest(change_payload),"snapshot":snapshot,"snapshotDigest":digest,"corpusDigest":_digest(corpus),"documents":corpus,"headCommit":head,"diffBytes":diff_bytes,"proposedProfile":proposed,"warnings":sorted(warnings)}
 
 def compute_scope(repo, facts, profile_name, mode, profile_table):
     f=_facts(facts); corpus=compute_corpus(repo,f); snapshot=snapshot_worktree(repo,f,corpus)

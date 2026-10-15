@@ -69,7 +69,24 @@ def render(facts):
     front=["---",f'title: "docaudit {date}"',f'description: "docaudit audit report"','category: "logs"',f"created: {date}",f"updated: {date}",'version: "report/1.0"',"docaudit: "+json.dumps(docaudit,sort_keys=True,separators=(",",":")),"---",""]
     changed=facts.get("changed",[]); impacted=facts.get("impacted",[])
     findings=facts.get("findings",[])
-    lines=list(front)+[REPORT_SECTIONS[0],"",REPORT_SECTIONS[1],f"- runId: {facts['runId']}",f"- mode: {facts.get('mode','')}",f"- profile: {facts['profileName']}",f"- resolvedBackendModel: {facts.get('resolvedBackendModel','')}",f"- enabledLayers: {', '.join(facts.get('enabledLayers',[]))}",f"- contractVersion: {facts.get('contractVersion',CONTRACT_VERSION)}",f"- HEAD: {facts.get('headCommit')}",f"- anchor: {facts.get('anchor')}","",REPORT_SECTIONS[2],f"- corpus: {len(facts.get('corpus',[]))}",f"- changed: {len(changed)}",f"- impacted: {len(impacted)}"]
+    lines=list(front)+[REPORT_SECTIONS[0],"",REPORT_SECTIONS[1],f"- runId: {facts['runId']}",f"- mode: {facts.get('mode','')}",f"- profile: {facts['profileName']}",f"- resolvedBackendModel: {facts.get('resolvedBackendModel','')}",f"- enabledLayers: {', '.join(facts.get('enabledLayers',[]))}",f"- contractVersion: {facts.get('contractVersion',CONTRACT_VERSION)}",f"- HEAD: {facts.get('headCommit')}",f"- anchor: {facts.get('anchor')}"]
+    if "baseline" in facts:
+        baseline=facts["baseline"]
+        if baseline is None:
+            lines.append("- baseline: なし")
+        elif isinstance(baseline,dict):
+            model=baseline.get("resolvedBackendModel")
+            version=baseline.get("engineVersion")
+            lines.append(f"- baseline: {baseline.get('runId')}（判定役 {model if isinstance(model,str) else '不明'}、engine {version if isinstance(version,str) else '不明'}）")
+            parts=[]
+            current_model=facts.get("resolvedBackendModel")
+            current_version=facts.get("engineVersion")
+            if isinstance(model,str) and isinstance(current_model,str) and model != current_model:
+                parts.append(f"判定役 {model} → {current_model}")
+            if isinstance(version,str) and isinstance(current_version,str) and version != current_version:
+                parts.append(f"engine {version} → {current_version}")
+            if parts: lines.append(f"- 基準との違い: {'、'.join(parts)}。内容が同じ文書でも判定が変わることがあります。")
+    lines += ["",REPORT_SECTIONS[2],f"- corpus: {len(facts.get('corpus',[]))}",f"- changed: {len(changed)}",f"- impacted: {len(impacted)}"]
     lines += ["- "+x.get("path",str(x)) for x in impacted]
     finding_lines=[]; redacted=0
     for x in findings:
