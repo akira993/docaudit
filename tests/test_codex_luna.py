@@ -1,4 +1,4 @@
-"""Lane E: Codex model/effort (gpt-6-luna, xhigh), Fast, and the extended layers.
+"""Lane E: Codex model/effort (gpt-6.1-sol, medium), Fast, and the extended layers.
 
 Written before the engine change.  Every test builds a clean environment and
 replaces `procs.run_group`, so no real Codex process can start.
@@ -17,7 +17,7 @@ from unittest import mock
 from skills.audit.engine import c_codex, c_dispatch, c_optional, deps
 
 
-LUNA = "gpt-6-luna"
+SOL = "gpt-6.1-sol"
 AGY_PRIMARY = "agy:gemini-3.8-flash-medium"
 WORKFLOW_PRIMARY = "workflow:claude-sonnet-5-5"
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
@@ -92,35 +92,35 @@ def _run_call(root, *, manifest_model, model, capability=None, has_capability=Tr
 
 
 class ConstantTests(unittest.TestCase):
-    def test_default_codex_model_is_luna(self):
-        self.assertEqual(deps.DEFAULT_CODEX_MODEL, LUNA)
+    def test_default_codex_model_is_sol(self):
+        self.assertEqual(deps.DEFAULT_CODEX_MODEL, SOL)
 
-    def test_reasoning_effort_is_xhigh(self):
-        self.assertEqual(c_codex.MODEL_REASONING_EFFORT, "xhigh")
+    def test_reasoning_effort_is_medium(self):
+        self.assertEqual(c_codex.MODEL_REASONING_EFFORT, "medium")
 
     def test_dispatch_effort_is_the_codex_constant(self):
         self.assertIs(c_dispatch.CODEX_EFFORT, c_codex.MODEL_REASONING_EFFORT)
 
-    def test_auto_resolves_to_luna(self):
+    def test_auto_resolves_to_sol(self):
         self.assertEqual(
             deps.resolve_backend("auto", {"available": True, "workflowAvailable": True}),
-            "codex:" + LUNA,
+            "codex:" + SOL,
         )
 
     def test_call_passes_the_effort_constant_to_codex(self):
         with tempfile.TemporaryDirectory() as directory:
             argvs, _ = _run_call(
-                Path(directory), manifest_model="codex:" + LUNA, model=LUNA,
+                Path(directory), manifest_model="codex:" + SOL, model=SOL,
             )
         self.assertEqual(len(argvs), 1)
-        self.assertTrue(_has_pair(argvs[0], "-c", "model_reasoning_effort=xhigh"))
+        self.assertTrue(_has_pair(argvs[0], "-c", "model_reasoning_effort=medium"))
 
 
 class FastTests(unittest.TestCase):
     def _argv(self, **options):
         with tempfile.TemporaryDirectory() as directory:
             argvs, _ = _run_call(
-                Path(directory), manifest_model="codex:" + LUNA, model=LUNA, **options,
+                Path(directory), manifest_model="codex:" + SOL, model=SOL, **options,
             )
         self.assertEqual(len(argvs), 1)
         return argvs[0]
@@ -153,19 +153,19 @@ class FastTests(unittest.TestCase):
         argv = self._argv(capability={
             **CODEX_UP, "backendSelection": {"backend": "codex", "fast": True},
         })
-        self.assertEqual(_flag_value(argv, "-m"), LUNA)
-        self.assertTrue(_has_pair(argv, "-c", "model_reasoning_effort=xhigh"))
+        self.assertEqual(_flag_value(argv, "-m"), SOL)
+        self.assertTrue(_has_pair(argv, "-c", "model_reasoning_effort=medium"))
 
 
 class ModelCallRecordTests(unittest.TestCase):
     def test_record_names_the_codex_model_that_was_passed(self):
         with tempfile.TemporaryDirectory() as directory:
             _, records = _run_call(
-                Path(directory), manifest_model=AGY_PRIMARY, model=LUNA,
+                Path(directory), manifest_model=AGY_PRIMARY, model=SOL,
                 capability=dict(CODEX_UP),
             )
         self.assertEqual([kind for kind, _ in records], ["model-call"])
-        self.assertEqual(records[0][1]["model"], "codex:" + LUNA)
+        self.assertEqual(records[0][1]["model"], "codex:" + SOL)
 
     def test_record_for_a_codex_primary_is_unchanged(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -218,28 +218,28 @@ class ExtendedLayerTests(unittest.TestCase):
                 result = LAYERS[layer_id](ctx)
         return result, recorder.argvs
 
-    def test_agy_primary_runs_on_codex_luna(self):
+    def test_agy_primary_runs_on_codex_sol(self):
         for layer_id in LAYERS:
             with self.subTest(layer_id):
                 result, argvs = self._run(layer_id, AGY_PRIMARY, dict(CODEX_UP))
                 self.assertEqual(len(argvs), 1, (result.status, result.reason))
-                self.assertEqual(_flag_value(argvs[0], "-m"), LUNA)
+                self.assertEqual(_flag_value(argvs[0], "-m"), SOL)
                 self.assertNotIn("gemini-3.8-flash-medium", argvs[0])
                 self.assertEqual((result.status, result.reason), ("complete", None))
                 self.assertTrue(self.records)
                 for kind, data in self.records:
-                    self.assertEqual((kind, data["model"]), ("model-call", "codex:" + LUNA))
+                    self.assertEqual((kind, data["model"]), ("model-call", "codex:" + SOL))
 
-    def test_workflow_primary_runs_on_codex_luna_when_codex_works(self):
+    def test_workflow_primary_runs_on_codex_sol_when_codex_works(self):
         for layer_id in LAYERS:
             with self.subTest(layer_id):
                 result, argvs = self._run(layer_id, WORKFLOW_PRIMARY, dict(CODEX_UP))
                 self.assertEqual(len(argvs), 1, (result.status, result.reason))
-                self.assertEqual(_flag_value(argvs[0], "-m"), LUNA)
+                self.assertEqual(_flag_value(argvs[0], "-m"), SOL)
                 self.assertNotIn("sonnet", argvs[0])
                 self.assertEqual((result.status, result.reason), ("complete", None))
                 for kind, data in self.records:
-                    self.assertEqual((kind, data["model"]), ("model-call", "codex:" + LUNA))
+                    self.assertEqual((kind, data["model"]), ("model-call", "codex:" + SOL))
 
     def test_agy_primary_without_codex_is_incomplete_codex_unavailable(self):
         for layer_id in LAYERS:
@@ -299,10 +299,10 @@ class ExtendedLayerTests(unittest.TestCase):
         fast_up = {**CODEX_UP, "backendSelection": {"backend": "codex", "fast": True}}
         for layer_id in LAYERS:
             with self.subTest(layer_id):
-                _, argvs = self._run(layer_id, "codex:" + LUNA, fast_up)
+                _, argvs = self._run(layer_id, "codex:" + SOL, fast_up)
                 self.assertEqual(len(argvs), 1)
                 self.assertTrue(_fast(argvs[0]), argvs[0])
-                _, argvs = self._run(layer_id, "codex:" + LUNA, dict(CODEX_UP))
+                _, argvs = self._run(layer_id, "codex:" + SOL, dict(CODEX_UP))
                 self.assertFalse(any("service_tier" in item for item in argvs[0]))
 
 

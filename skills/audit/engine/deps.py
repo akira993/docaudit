@@ -15,7 +15,7 @@ from . import procs
 from .profiles import PROFILE_TABLE
 
 
-DEFAULT_CODEX_MODEL = "gpt-6-luna"
+DEFAULT_CODEX_MODEL = "gpt-6.1-sol"
 DEFAULT_WORKFLOW_MODEL = "claude-sonnet-5-5"
 PROBE_CONTRACT_VERSION = "capability/1.2"
 

@@ -14,7 +14,7 @@ from .c_tmp import TmpUnavailable, exclusive_file, private_temp
 
 OUTPUT_MAX_BYTES = 2 * 1024 * 1024
 KILL_GRACE_SEC = 5
-MODEL_REASONING_EFFORT = "xhigh"
+MODEL_REASONING_EFFORT = "medium"
 
 
 class BudgetExceeded(Exception):

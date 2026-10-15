@@ -623,7 +623,7 @@ Fast, agy, Claude Code agents (`claude`). A backend is usable under the same
 conditions as in the resolution described next, including `agyRepoBlock` for
 agy. Without `--backend`
 and `--ask-backend`, or with only one usable backend, the engine takes the
-first usable backend in the order Codex (`codex:gpt-6-luna`), agy
+first usable backend in the order Codex (`codex:gpt-6.1-sol`), agy
 (`agy:gemini-3.8-flash-medium`), Claude Code agents
 (`workflow:claude-sonnet-5-5`). With
 `--backend`, only the named backend is considered, and one that is not usable
@@ -634,11 +634,11 @@ gives `undecided backend-unavailable`.
 For `codex:<model>`, L-DOC checks impacted documents in path order with at most
 three attempts per document and four concurrent calls. Constants are a 2 MiB
 output limit, 900 second document timeout, five second termination grace, and
-`xhigh` reasoning effort. The default model is `gpt-6-luna`; a Codex account
+`medium` reasoning effort. The default model is `gpt-6.1-sol`; a Codex account
 that cannot use it fails every attempt, so the layer is incomplete with
 `backend-failed` and there is no automatic fallback to another backend. Each
 call uses `codex exec -s read-only --ephemeral --ignore-user-config
---ignore-rules -C <repo-root> -m <model> -c model_reasoning_effort=xhigh
+--ignore-rules -C <repo-root> -m <model> -c model_reasoning_effort=medium
 [-c service_tier=priority] --output-schema <schema-file> -o <output-file> -`;
 `-c service_tier=priority` is present only when the run's
 `backendSelection.fast` is true, for every Codex call of the run. The prompt is supplied from a private file;

@@ -39,7 +39,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 | macOS または Linux | `projectChecks` は macOS でのみ動きます（`sandbox-exec` を使うため）。 |
 | git | git が差分とスナップショットを提供します。Claude Code が必要なのは `/docaudit:audit` の skill と Claude Code agents の backend です。 |
 | Python 3.12 以上 | engine は標準ライブラリだけを使います。 |
-| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6-luna` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は model を呼ぶときは Codex を使います（第 8 節）。 |
+| Codex CLI（任意） | `codex` が `PATH` にあり、`codex --version` と `codex exec --help` が動き、Codex home の `auth.json` が読める通常 file（symlink 等の非通常 file は不可）であるときに使われます。Codex のアカウントが model `gpt-6.1-sol` を使えることが必要です（第 7 節）。`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は model を呼ぶときは Codex を使います（第 8 節）。 |
 | agy CLI（任意） | `AGY_HOME` で指定した専用ホームディレクトリにログイン済みで、道具の制限用の hook file があるときだけ使われます（第 7 節「agy backend」）。 |
 | Node.js（任意） | リポジトリ自身のテストを走らせるときだけ必要です。 |
 
@@ -146,7 +146,7 @@ python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile sta
 - `--backend` も `--ask-backend` もないとき（素のコマンド、または上の最後の場合）、engine は Codex、agy、Claude Code の agent の順で最初に使える backend を取ります。したがって、agy は使えるが Codex が動かない環境では、主担当が Claude Code の agent から agy に変わります。Claude Code の agent を使い続けるには `--backend claude` を付けます。
 - 選択は run に書かれる（`run-options` 記録と `capability.json` の `backendSelection`）ので、`resume` でも同じ backend・同じ Fast 設定になります。
 
-Codex backend は model `gpt-6-luna` を reasoning effort `xhigh` で動かし、Fast では `-c service_tier=priority` が加わります。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6-luna` を使えず、影響文書がある場合は、呼び出しが失敗して文書の判定はなく、run は `undecided backend-failed` で終わります。影響文書が 0 件なら model は呼び出されません。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
+Codex backend は model `gpt-6.1-sol` を reasoning effort `medium` で動かし、Fast では `-c service_tier=priority` が加わります。文書をどの backend で検証していても、`extended` profile の `L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の Codex 呼び出しは、この段落の model と reasoning effort を使います。1 回の呼び出しの時間上限は 900 秒で、文書ごとに最大 3 回試し、同時に 4 回まで呼びます。Codex のアカウントが `gpt-6.1-sol` を使えず、影響文書がある場合は、呼び出しが失敗して文書の判定はなく、run は `undecided backend-failed` で終わります。影響文書が 0 件なら model は呼び出されません。docaudit が自分で別の backend に切り替えることはないので、`--backend` で選んでください。
 
 Claude Code の agent backend は判定役の agent `docaudit:doc-impact-verifier` を model `claude-sonnet-5-5`、effort `high` で動かします。
 
@@ -279,7 +279,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `NEEDS_FIX`（`--full --accept-baseline` で受理） | FAIL が文書判定だけ | anchor は前進した。既知 FAIL は文書を直したときに再判定 |
 | `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、使える agy もなく、Claude Code の中でもない）、または `--backend` で指名した backend を使えない | Codex を install または修復するか、agy を設定する（第 7 節）か、Claude Code の中で実行。`--backend` で指名した backend を使えない場合は、その backend を直すか、`--backend` を外すか、別の使える backend を指名する |
-| `undecided backend-failed` | 少なくとも 1 件の文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6-luna` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex による評価がすべての試行に失敗した | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認する |
+| `undecided backend-failed` | 少なくとも 1 件の文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex による評価がすべての試行に失敗した | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認する |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
 | `undecided corpus-unreadable` | 検証用 mirror の準備中に corpus 内の文書を読めなかった（Claude Code の agent backend） | file を読めるようにする（権限、壊れた symlink）して再実行 |
 | `undecided sandbox-unavailable` | `sandbox-exec` のない環境で `projectChecks` を設定 | Linux では `projectChecks` を空に |
