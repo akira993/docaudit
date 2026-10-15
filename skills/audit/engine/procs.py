@@ -38,6 +38,7 @@ def run_group(
     env,
     stdin_path=None,
     stdout_path=None,
+    stderr_path=None,
     timeout_sec,
     grace_sec=KILL_GRACE_SEC,
     cancel=None,
@@ -54,6 +55,7 @@ def run_group(
 
     stdin_handle = None
     stdout_handle = None
+    stderr_handle = None
     process = None
     timed_out = False
     cancelled = False
@@ -64,13 +66,15 @@ def run_group(
             stdin_handle = open(stdin_path, "rb")
         if stdout_path is not None:
             stdout_handle = open(stdout_path, "wb")
+        if stderr_path is not None:
+            stderr_handle = open(stderr_path, "wb")
         process = subprocess.Popen(
             argv,
             cwd=cwd,
             env=env,
             stdin=stdin_handle if stdin_handle is not None else subprocess.DEVNULL,
             stdout=stdout_handle if stdout_handle is not None else subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_handle if stderr_handle is not None else subprocess.DEVNULL,
             start_new_session=True,
         )
         deadline = started + timeout_sec
@@ -107,6 +111,8 @@ def run_group(
             stdin_handle.close()
         if stdout_handle is not None:
             stdout_handle.close()
+        if stderr_handle is not None:
+            stderr_handle.close()
 
     duration_ms = max(0, int((time.monotonic() - started) * 1000))
     return {

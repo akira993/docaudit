@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from . import procs
+from . import c_report, procs
 from .c_tmp import TmpUnavailable, exclusive_file, private_temp
 
 
@@ -131,6 +132,38 @@ def _load_output(path: str, schema: Mapping[str, Any]):
     return value, None, size
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_SECRET = re.compile(r"[A-Za-z0-9_+/=-]{32,}")
+
+
+def _stderr_tail(path):
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 2048))
+            raw = handle.read()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    if size > 2048:
+        cut = raw.find(b"\n")
+        if cut < 0:
+            spaces = [index for index in (raw.find(b" "), raw.find(b"\t")) if index >= 0]
+            cut = min(spaces) if spaces else -1
+        raw = raw[cut + 1 :] if cut >= 0 else b""
+    text = raw.decode("utf-8", errors="replace")
+    text = _ANSI_ESCAPE.sub("", text)
+    text = _CONTROL.sub(" ", text)
+    text, _ = c_report.redact(text)
+    text = _SECRET.sub("`<secret>`", text).strip()
+    if not text:
+        return None
+    return text[-2048:]
+
+
 def call(
     ctx: dict[str, Any], *, prompt: str, schema: dict[str, Any],
     validate: Callable[[dict[str, Any]], str | None], role: str,
@@ -161,9 +194,11 @@ def call(
                 sequence = call_seq() if callable(call_seq) else int(ctx.get("model_call_offset", 0)) + attempt
                 prompt_path = os.path.join(temporary, f"prompt-{attempt}.txt")
                 output_path = os.path.join(temporary, f"out-{attempt}.json")
+                stderr_path = os.path.join(temporary, f"stderr-{attempt}.txt")
                 role_prompt = f"docaudit-role: {role}\n" + prompt
                 exclusive_file(prompt_path, role_prompt.encode("utf-8"))
                 exclusive_file(output_path)
+                exclusive_file(stderr_path)
                 argv = [
                     find_codex(env), "exec", "-s", "read-only", "--ephemeral",
                     "--ignore-user-config", "--ignore-rules", "-C", root, "-m", model,
@@ -174,7 +209,8 @@ def call(
                 try:
                     result = procs.run_group(
                         argv, cwd=root, env=env, stdin_path=prompt_path,
-                        stdout_path=None, timeout_sec=timeout_sec,
+                        stdout_path=None, stderr_path=stderr_path,
+                        timeout_sec=timeout_sec,
                         grace_sec=ctx.get("kill_grace_sec", KILL_GRACE_SEC), cancel=cancel,
                     )
                 except OSError:
@@ -209,6 +245,10 @@ def call(
                     "valid": value is not None and reason is None,
                     "reason": reason, "confirmed": True,
                 }
+                if reason is not None:
+                    stderr_tail = _stderr_tail(stderr_path)
+                    if stderr_tail is not None:
+                        data["stderrTail"] = stderr_tail
                 ctx["append_record"]("model-call", data)
                 records.append(data)
                 if value is not None and reason is None:

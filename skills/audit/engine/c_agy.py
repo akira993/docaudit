@@ -123,6 +123,7 @@ def call(ctx, *, prompt, schema, validate, doc_id, timeout_sec, attempts, cancel
                 call_seq = ctx.get("next_call_seq")
                 sequence = call_seq() if callable(call_seq) else int(ctx.get("model_call_offset", 0)) + attempt
                 output_path = os.path.join(temporary, f"out-{attempt}.json")
+                stderr_path = os.path.join(temporary, f"stderr-{attempt}.txt")
                 value = None
                 output_bytes = 0
                 if prelaunch_reason is not None:
@@ -140,7 +141,8 @@ def call(ctx, *, prompt, schema, validate, doc_id, timeout_sec, attempts, cancel
                     try:
                         result = procs.run_group(
                             argv, cwd=root, env=env, stdin_path=prompt_path,
-                            stdout_path=output_path, timeout_sec=timeout_sec,
+                            stdout_path=output_path, stderr_path=stderr_path,
+                            timeout_sec=timeout_sec,
                             grace_sec=ctx.get("kill_grace_sec", KILL_GRACE_SEC), cancel=cancel,
                         )
                     except OSError:
@@ -173,6 +175,10 @@ def call(ctx, *, prompt, schema, validate, doc_id, timeout_sec, attempts, cancel
                     "valid": value is not None and reason is None,
                     "reason": reason, "confirmed": True,
                 }
+                if reason is not None:
+                    stderr_tail = c_codex._stderr_tail(stderr_path)
+                    if stderr_tail is not None:
+                        data["stderrTail"] = stderr_tail
                 ctx["append_record"]("model-call", data)
                 records.append(data)
                 if value is not None and reason is None:
