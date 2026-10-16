@@ -139,11 +139,17 @@ _SECRET = re.compile(r"[A-Za-z0-9_+/=-]{32,}")
 
 def _stderr_tail(path):
     try:
-        with open(path, "rb") as handle:
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            handle.seek(max(0, size - 2048))
-            raw = handle.read()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            with os.fdopen(fd, "rb", closefd=False) as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - 2048))
+                raw = handle.read()
+        finally:
+            os.close(fd)
     except OSError:
         return None
     if not raw:
