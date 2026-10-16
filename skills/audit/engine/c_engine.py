@@ -1296,12 +1296,11 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
         return _next(3, "abort", None, None, "fast-requires-codex")
     try:
         c_profile.validate_table(dependencies.profile_table, LAYER_REGISTRY)
-        # Configuration and fixed-profile rejection happen before a run is opened.
+        # Check the requested or default profile against configuration before opening a run.
         with c_io.RepoRoot(repo_root) as repo:
             config = c_config.load_config(repo)
             _check_tolerated_paths(repo, config)
-            if profile is not None:
-                c_profile.resolve(dependencies.profile_table, profile, config.capability)
+            c_profile.resolve(dependencies.profile_table, profile, config.capability)
             if ask_backend and backend is None:
                 choices = _backend_choices(repo, dependencies)
                 if choices is not None:
@@ -1315,7 +1314,8 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
                     return _drive_new(repo, handle, guard, profile, mode, dependencies, config, accept_baseline, {"backend": backend, "fast": fast})
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
-                except (OSError, c_io.IoRejected, c_run.RunRejected, c_report.ReportPublishFailed,
+                except (OSError, c_io.IoRejected, c_run.RunRejected, c_profile.ProfileRejected,
+                        c_report.ReportPublishFailed,
                         c_evidence.EvidenceRejected, c_history.HistoryRejected,
                         c_retrieval.RetrievalRejected) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
@@ -1342,7 +1342,8 @@ def resume(repo_root, run_id: str, deps: EngineDeps | None = None):
                     return _drive_resume(repo, handle, guard, dependencies)
                 except EngineRejected as exc:
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
-                except (OSError, c_io.IoRejected, c_evidence.EvidenceRejected,
+                except (OSError, c_io.IoRejected, c_profile.ProfileRejected,
+                        c_evidence.EvidenceRejected,
                         c_history.HistoryRejected, c_retrieval.RetrievalRejected,
                         c_run.RunRejected, c_report.ReportPublishFailed) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
