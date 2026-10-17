@@ -54,7 +54,7 @@ docaudit は Markdown 文書を、それが説明しているコードや設定�
 3. `impact.map`: ソース領域ごとに最低 1 項目（第 5 節）。
 4. `report.path`: `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む Markdown の path。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。例: `reports/audit_<YYYY-MM-DD>[_NN].md`。report のディレクトリは retrieval 後の run 準備中に作られ、report を公開せずに終わっても残ります。それより前に拒否された run では作られません。report は上書きされず、同じ名前があれば `_02` から `_1000` までの最初の空き番号を、`[_NN]` がある位置か、無ければ日付の直後に付けます。すべて埋まると終了値 4・`path-exhausted`・開いた run の `runId` を返し、run は開いたままです。古い report を動かして名前を空け、その run を再開します。
 
-`extended` profile を使う予定がなければ `enabledLayers` は `["L-SCOPE", "L-DOC", "L-PROJECT"]` のままにし（第 8 節）、`documentChecks.frontMatterFields` と `documentChecks.indexFiles` は文書がその規約に従うようになるまで空にしておきます。未知のキーは拒否されるので、綴り間違いは無視されずに `config-invalid:<detail>` として検証に失敗します。
+`extended` profile を使う予定がなければ `enabledLayers` は `["L-SCOPE", "L-DOC", "L-PROJECT"]` のままにします（第 8 節）。`documentChecks.frontMatterFields` は文書が規約に従うまで空にしておきます。`documentChecks.indexFiles` は orphan 検査でリンク元と数える file の一覧で、file は存在しなくてもよく、読めない場合は空として扱われます。`--profile` を省くと既定の `standard` の層を run を開く前に照合し、`L-PROJECT` だけが足りなければ終了値 3・`capability-missing:L-PROJECT` で拒否されるため、`--profile focused` を指定します。未知のキーは拒否されるので、綴り間違いは無視されずに `config-invalid:<detail>` として検証に失敗します。
 
 設定は commit してください。設定はリポジトリの契約の一部で、engine はそのバイト列を毎回の run に封印します。run が開いている間に file を変えると、その run は `REFUSED config-drift` になります。
 
@@ -210,7 +210,7 @@ agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します�
 - docaudit は agy のホームに入れた plugin を検査しません。plugin は独自の hook を持てます。
 - 1 回の呼び出しは agy 側で 15 分（`--print-timeout 15m`）に制限され、engine は 960 秒で待つのをやめます。同時に走るのは 2 本で、文書ごとに最大 3 回試します。
 
-hook が拒否した道具は失敗ではありません。道具は実行されず、agy は続けます。すべての試行に失敗した文書は判定を持たず、run は `undecided backend-failed` で終わります。最後の試行の reason は文書の `failure` 記録に、各試行の reason は `model-call` 記録に残ります。
+hook が拒否した道具は失敗ではありません。道具は実行されず、agy は続けます。すべての試行に失敗した文書は判定を持たず、run は `undecided backend-failed` で終わります。最後の試行の reason は文書の `failure` 記録に、各試行の reason は `model-call` 記録に残ります。ただし Codex・agy で検証する文書が private な一時ディレクトリを作れない場合、その文書では試行が始まらず、`model-call` 記録もありません。すべての文書で作れなければ run は `undecided tmp-unavailable` で終わり、文書ごとの `failure` 記録はありません。一部の文書だけなら、その文書の `failure` は reason `tmp-unavailable`・`attempts` 0 となり、run は `undecided backend-failed` で終わります。
 
 | reason | 意味 |
 |---|---|
@@ -226,7 +226,7 @@ hook が拒否した道具は失敗ではありません。道具は実行され
 | `agy-denied` | 答えが返っても、agy が拒否された操作を報告した |
 | `structured-output-missing` | 構造化された答えがなかった。15 分の上限もここに入る |
 | `output-type-mismatch`、`output-schema-mismatch`、`identity-mismatch` | 答えが判定の schema に合わない、または尋ねられた run と文書をそのまま返していない |
-| `tmp-unavailable` | private な一時ディレクトリを作れなかった |
+| `tmp-unavailable` | 試行前に private な一時ディレクトリを作れなかったため、`model-call` 記録はない |
 
 ### anchor のライフサイクル
 
@@ -242,7 +242,7 @@ engine は mutex と lease を保持し、前の run が開いたままの間は
 
 - `run-in-progress`: 別の engine process が今まさに監査を実行中です。終わるのを待ってください。lease を保持している間、再開は `resume-in-progress`、放棄は `run-in-progress` で拒否されます。
 - `run-awaiting-external`: run が検証 workflow に渡されたまま再開されていません。`resume <runId>` で再開します。結果行が closed になったか再び引き渡し（`nextAction: invoke-workflow`）になったかを示すので、後者なら workflow を実行してもう一度再開します。
-- `run-interrupted-resume-required`: engine process が run の途中で終了しました。`resume <runId>` で再開するか、`resume <runId> --abandon` で verdict なしに閉じます。
+- `run-interrupted-resume-required`: engine process が run の途中で終了しました。`resume <runId>` で再開するか、`resume <runId> --abandon` で verdict なしに閉じます。以前の engine が `capability-missing:<layer>` の拒否後に開いたまま残した run は、再開すると終了値 4・その reason・`runId` で止まります。設定は run を開いたときに封印されているため、層を足しても再開では直らず、`resume <runId> --abandon` で閉じます。
 
 skill は前の session から残った run を回復しません。手作業か、PROMPTS.ja.md 第 8 節のプロンプトで行ってください。
 
@@ -262,11 +262,11 @@ skill は前の session から残った run を回復しません。手作業か
 
 `L-PROJECT` は封印 corpus に 4 種類の読み取り専用チェックを適用します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.indexFiles` に挙げた文書自身は orphan と報告されません。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
 
-`projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、`/dev/null` を除き private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。Linux では `projectChecks` を空にしてください。空でないと run は `undecided sandbox-unavailable` で終わります。
+`projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、`/dev/null` を除き private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。Linux で `standard` または `extended` を使う場合は `projectChecks` を空にしてください。これらの profile では検査が動き、空でないと run は `undecided sandbox-unavailable` で終わります。`focused` では動きません。
 
 ## 10. 結果を読む
 
-- **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付き、backend の質問では `nextAction: choose-backend`・`runId` が null・`choices` が付いて run は開かれません。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡し・backend の質問を含みます。3 は run を開く前、または再開を始める前の拒否で、設定・profile・run 状態の問題に加え、引数の不整合（`accept-baseline-requires-full`・`backend-invalid`・`fast-requires-codex`）や対応しない platform（`io-unsupported-platform`）も含み、`reason` に名前が出ます。4 は run を開いた後、または再開が始まった後に続行できなかったことで、後からの `mutex-timeout` や report 名の使い切り（`path-exhausted`）も含みます。engine が扱う終了値 4 の中断では、結果行にその run の `runId` が入り、run は開いたままなので再開か放棄を選びます。
+- **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付き、backend の質問では `nextAction: choose-backend`・`runId` が null・`choices` が付いて run は開かれません。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡し・backend の質問を含みます。2 はコマンド行の解析で未知の option・未知の `--profile` 値・command のない呼び出しが拒否され、JSON の結果行の代わりに `usage:` で始まる使い方が標準エラーに表示されます。3 は run を開く前、または再開を始める前の拒否で、設定・profile・run 状態の問題に加え、引数の不整合（`accept-baseline-requires-full`・`backend-invalid`・`fast-requires-codex`）や対応しない platform（`io-unsupported-platform`）も含み、`reason` に名前が出ます。4 は run を開いた後、または再開が始まった後に続行できなかったことで、後からの `mutex-timeout` や report 名の使い切り（`path-exhausted`）も含みます。engine が扱う終了値 4 の中断では、結果行にその run の `runId` が入り、run は開いたままなので再開か放棄を選びます。
 - **report。** `report.path` に公開され、固定の front matter と、run・対象文書・所見・判定・anchor・計測・証跡の節を持ちます。見出しと定型句の大半は日本語です。所見ごとに 1 行が並びます。文書は verdict と食い違いの 1 行要約、それ以外の所見（project check・link・claim など）は severity と要約です。judgement の裏付けとなる証拠の文字列（Codex backend には rationale に `file:line` を引用するよう、Claude Code の agent にはリポジトリ相対の証拠を示すよう求めます）は、run の証拠台帳と履歴の `judgement` 行に、Claude Code の agent で検証した run ではさらに `runs/<runId>/requests/<seq>/judgements/` に保持されます。所見の安全でない要約と履歴の `judgement` 行は report と同じ規則で伏字にし、証拠台帳と `requests/<seq>/judgements/` は原文のままです。検証が始まる前に `undecided` で終わった run は report を公開しません。Run 節には `baseline` として基準にした anchor の判定役と engine の版を示し、今回と分かっている値が違えば `基準との違い` を追加します。内容が同じ文書でも判定が変わることがあります。
 - **state ディレクトリ。** `.claude/state/docaudit/history.jsonl` は run の outcome と judgement を 1 行ずつ記録し（ほかに `flip`・`anchor`・`legacy`・`migration` の行）、`anchors/<profile>.json` が現在の anchor、`runs/<runId>/` には封印された manifest・adapter 結果と judgement を含む証拠台帳・`verdict.json` が置かれることがありますが、`undecided backend-unavailable` で終わる run にはこれらがありません。state ディレクトリを commit する（履歴を version 管理下で監査可能にする）か無視する（clone ごとのローカル状態にする）かは一度決めてください。engine はどちらでも動きます。
 
@@ -277,13 +277,14 @@ skill は前の session から残った run を回復しません。手作業か
 | `CONSISTENT` | 影響を受けた文書がすべて一致し、blocking な所見もない | なし。anchor が前進した |
 | `NEEDS_FIX` | 少なくとも 1 文書が失敗、または blocking な所見（切れたリンク・失敗した project check・confirmed な claim） | report に出たものを直して再実行 |
 | `NEEDS_FIX`（`--full --accept-baseline` で受理） | FAIL が文書判定だけ | anchor は前進した。既知 FAIL は文書を直したときに再判定 |
-| `undecided anchor-missing` | anchor のない incremental な run | `--full` で実行 |
+| `undecided anchor-missing` | anchor のない incremental な run | その run が `--profile` を指定していた場合は同じ `--profile` を付け、`--full` で実行 |
 | `undecided backend-unavailable` | 能力検出で使える backend がなかった（Codex がなく、使える agy もなく、Claude Code の中でもない）、または `--backend` で指名した backend を使えない | Codex を install または修復するか、agy を設定する（第 7 節）か、Claude Code の中で実行。`--backend` で指名した backend を使えない場合は、その backend を直すか、`--backend` を外すか、別の使える backend を指名する |
-| `undecided backend-failed` | Codex・agy で検証した文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認し、一時ディレクトリも確認する。失敗した Codex・agy の試行では、`model-call` 記録に `stderrTail` があればエラー出力の末尾も確認する |
+| `undecided backend-failed` | Codex・agy で検証した文書がすべての試行に失敗した（例: agy にログインしていない、Codex のアカウントが `gpt-6.1-sol` を使えない）、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった | 文書の `failure` 記録と `model-call` 記録、または層の `model-call` 記録で理由を確認する。ただし `tmp-unavailable` で終わった文書には `model-call` 記録がない。一時ディレクトリも確認する。失敗した Codex・agy の試行では、`model-call` 記録に `stderrTail` があればエラー出力の末尾も確認する |
+| `undecided tmp-unavailable` | Codex・agy で検証する文書のすべてで private な一時ディレクトリを作れず、試行が始まらなかった。または `projectChecks` が自分の private な一時ディレクトリを作れなかった | 一時ディレクトリに書き込めるか確かめて再実行する。前者の場合、文書に `failure`・`model-call` 記録はない |
 | `undecided external-incomplete` | Claude Code の agent で検証した文書が 3 回目の request の後も未解決 | request と response の記録を確認し、外部の処理を直して再実行する |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
-| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにする・corpus 外の file で、その場所が Git に無視され追跡 file を含まないなら、代わりにその場所を `worktree.tolerateChangesIn` で許してもよい（条件は上の説明のとおり）・再実行する |
-| `undecided sandbox-unavailable` | 空でない `projectChecks` を Darwin 以外で設定した・`/usr/bin/sandbox-exec` がない・`/usr/bin/true` の事前確認を起動できないか、0 以外で終わるか、20 秒で時間切れになる | Linux では `projectChecks` を空にする・macOS では `sandbox-exec` または事前確認の実行環境を直して再実行する |
+| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）（corpus の文書と `diffGlobs` に合う file は 8 MiB を超えると読めないものとして扱う）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにして 8 MiB 以下にするか、8 MiB を超える場合は `docGlobs`・`excludeDocGlobs`・`diffGlobs` で読ませない・corpus 外の file で、その場所が Git に無視され追跡 file を含まないなら、代わりにその場所を `worktree.tolerateChangesIn` で許してもよい（条件は上の説明のとおり）・再実行する |
+| `undecided sandbox-unavailable` | Darwin 以外で `standard`・`extended` に空でない `projectChecks` を設定した・`/usr/bin/sandbox-exec` がない・`/usr/bin/true` の事前確認を起動できないか、0 以外で終わるか、20 秒で時間切れになる | Linux で `standard`・`extended` を使う場合は `projectChecks` を空にする（`focused` では動かない）・macOS では `sandbox-exec` または事前確認の実行環境を直して再実行する |
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided abandoned` | run が放棄された | 再実行 |
@@ -296,7 +297,7 @@ skill は前の session から残った run を回復しません。手作業か
 - **毎回 `config-invalid:<detail>` になる。** detail が問題のキーを示します。path はリポジトリ相対で、親ディレクトリ参照の `..` という path セグメント（例: `a/../b`）を含まず、`report.path` は `.md` で終わり、path 全体で `<YYYY-MM-DD>` をちょうど 1 つ、`[_NN]` を高々 1 つ含む必要があります。日付が basename 内にある場合はその前に空でない文字列が必要で、日付が directory 側にある場合は basename 全体が空でなければ有効です。`config-invalid:worktree.tolerateChangesIn` なら、path の書き方と Git が無視するかを調べ、追跡 file・corpus 文書・engine の設定・state・report の場所を含まないか確認してください。
 - **`config-needs-migration`。** legacy file しかありません。`migrate` を実行してください（第 6 節）。
 - **最初の run で front matter や orphan の警告が大量に出る。** どれも non-blocking です。時間をかけて直すか、`documentChecks.layerGlobs` で文書を除外してください。
-- **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。直すまで engine は履歴を読みも書きもしません。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままです。`history.jsonl` 自体が壊れている間は放棄も失敗するため、先に履歴を直してから次の監査の前に再開か放棄をします。anchor file だけが壊れている場合は放棄できます。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直して再実行してください。
+- **`history-corrupt`。** `history.jsonl` に壊れた行がある・通常ファイルでない・UTF-8 でない・行が長すぎる、`anchors/` 配下の anchor file が読めない・形式が不正、または `CONSISTENT` の run が指す anchor 候補が読めない・記録されたハッシュと一致しない状態です。`history.jsonl` が壊れている場合は履歴の読み書きが止まります。anchor file だけが壊れている場合、その profile の incremental run は `history-corrupt` で止まりますが、`--full` は壊れた anchor を無視して履歴を読み、outcome を追記します。anchor を進める outcome（`CONSISTENT`、または `--accept-baseline` で受理した `NEEDS_FIX`）のときだけ、記録の段で `history-corrupt`・終了値 4 になります。state ディレクトリ全体の複製を取ってから、どの file が壊れているかを特定します。履歴の行が壊れていれば、有効な行を別名で残しつつ履歴 file を退避して新しい履歴 file を始めます。anchor が壊れていれば、その profile の anchor file を退避し、その profile は新たに `--full` の run が必要になります。run の途中で起きた場合（終了値 4）はその run が開いたままです。`history.jsonl` 自体が壊れている間は放棄も失敗するため、先に履歴を直してから次の監査の前に再開か放棄をします。anchor file だけが壊れている場合は放棄できます。`history.jsonl` 自体が権限で読めない場合は `history-corrupt` ではなく終了値 4・reason `PermissionError` で止まります。権限を直してから、その run を再開か放棄してください。`history.jsonl` が symbolic link の場合は、通常ファイルでない場合の例外として、その run は `history-corrupt` ではなく終了値 4・reason `OSError` で止まるため、link を通常ファイルに置き換えてから、その run を再開か放棄してください。
 - **`mutex-timeout`。** 別の engine process が state の操作（例: `migrate`）をしています。終了後にやり直し、`run-open.json` に開いたままの run があれば再開または放棄してください。**`run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
 - **想定外の file がリポジトリに書かれた。** engine が書くのは report と `.claude/state/docaudit/` 配下の state で、repo 直下の `.mdq/` は作業木の走査から外します。別のツールが run 中に書いても、列挙した場所の中にあり、gate 時点で Git が無視し、封印した corpus と snapshot の外にある変化だけを大目に見ます。それ以外の変化は、新しく作った親ディレクトリも含めて `REFUSED worktree-modified` です。回避策は、対象となる場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移すことです。entry 数か byte 数の上限を超えた場合は、代わりに `undecided worktree-too-large` になります。

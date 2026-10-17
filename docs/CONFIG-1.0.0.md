@@ -516,7 +516,10 @@ that layer precede its `adapter-result`.
 Gate applies these checks in order:
 
 1. loss of the process lease gives `REFUSED lock-lost`;
-2. changed configuration bytes give `REFUSED config-drift`;
+2. missing or unreadable published `manifest.json`, invalid JSON, or a
+   value other than a JSON object gives `REFUSED seal-drift` before the
+   configuration bytes are checked; otherwise their SHA-256 must match
+   manifest `configHash` (which must exist), or `REFUSED config-drift` follows;
 3. manifest, latest manifest intent, sealed-file bytes, or semantic plan
    mismatch gives `REFUSED seal-drift`;
 4. an evidence record hash mismatch gives `REFUSED evidence-tampered` and has
@@ -590,17 +593,25 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 `reason` and `reportPath` are omitted when not applicable. Exit status 0 means the engine finished normally:
 the run reached `closed`, it handed the run to the Workflow backend while the
 run remains open, or it asked for a backend choice without opening a run (see
-below). Status 3 means refusal before opening a run or before starting a resume;
+below). Status 2 means command-line parsing rejected an unknown option, an
+unknown `--profile` value, or a missing command: `usage:` is printed to
+standard error instead of a JSON result line. Status 3 means refusal before
+opening a run or before starting a resume;
 its `nextAction` is `abort`, `runId` and `outcome` are null, and `reason`
-identifies the refusal. Argument refusals include `backend-invalid` for a
-`--backend` value other than `agy`, `codex`, or `claude`, `fast-requires-codex`
-for `--fast` without `--backend codex`, and `accept-baseline-requires-full`
-for `--accept-baseline` without `--full`. An unsupported platform can return
+identifies the refusal. The selected or default profile is checked against
+`enabledLayers` before the run opens and refused with
+`capability-missing:<layer>` if a layer is missing. Argument refusals
+include `backend-invalid` for a `--backend` value other than `agy`,
+`codex`, or `claude`, `fast-requires-codex` for `--fast` without
+`--backend codex`, and `accept-baseline-requires-full` for
+`--accept-baseline` without `--full`. An unsupported platform can return
 `io-unsupported-platform`. Resume refusals before the transition to running
 include `run-not-found`, `run-closed`, `resume-in-progress`, and `mutex-timeout`;
 a timeout while opening a run also returns 3 with a null `runId`. For
 engine-handled interruptions after a run opens or a resume starts, status 4
-means the run cannot proceed or record an outcome, including a later
+means the run cannot proceed or record an outcome; a profile refusal such as
+`capability-missing:<layer>` after opening or starting a resume returns status 4
+with that run's `runId` and leaves it open. Other cases include a later
 `mutex-timeout` or report-name exhaustion (`path-exhausted`). The `abort`
 result carries that run's `runId`, and the run stays open for resume or abandon;
 it does not reach `closed`. Operating-system errors and rejected writes can
@@ -684,7 +695,18 @@ It contains `callSeq`, relative `path`, `attempt`, `model`, `exit`, `timedOut`,
 `durationMs`, `outputBytes`, `valid`, and `reason`; for a Codex call `model` is
 `codex:<model>`. Failed Codex and agy calls (`reason` not null) may add
 `stderrTail` from the CLI error output; successful calls, missing or empty
-output, and an empty processed tail omit the key. The last 2048 bytes are read.
+output, an empty processed tail, a path that is not a regular file, or a
+symbolic link at that path omit the key. The last 2048 bytes are read.
+The engine reads CLI stderr through a pipe and alone writes its temporary file.
+The engine opens that file without following symbolic links and uses it only if
+it is a regular file with no other hard link; otherwise an agy attempt is
+`launch-failed`.
+After each read, a file above 1 MiB is trimmed to its last 4096 bytes. While
+the CLI runs, the file stays within 1 MiB plus one 64 KiB read; after the call
+it is at most 1 MiB. Trimming drops only old bytes, leaving a continuous suffix
+in the CLI's order. If the CLI writes faster than the engine reads, its write
+waits for the engine. If the CLI replaces the path, the engine keeps writing
+to its opened file and does not trim the replacement.
 If output is longer, bytes through the first newline are dropped; without a
 newline, bytes through the first space or tab are dropped; without either,
 the key is omitted. Invalid UTF-8 is replaced, ANSI CSI sequences are removed,

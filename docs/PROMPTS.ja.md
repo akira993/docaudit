@@ -30,7 +30,7 @@ Claude Code の中で docaudit を動かすための、コピーして使える�
 直前の commit で file を変更した。/docaudit:audit を実行して、影響を受けた文書・verdict・report の path を教えて。
 ```
 
-期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で実行してください。`undecided impact-limit` は変更された文書と `impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck` で追加された文書の合計が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も、削除されたものを除き、常に数えられます。
+期待: 文書がまだ一致していれば `CONSISTENT`、そうでなければ失敗した文書付きの `NEEDS_FIX`。`undecided anchor-missing` はこの profile にまだ anchor がないという意味なので、先に例 1 を `--full`（または `--full --accept-baseline`）で、その run が `--profile` を付けていた場合は同じ `--profile` を付けて実行してください。`undecided impact-limit` は変更された文書と `impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck` で追加された文書の合計が `impact.maxImpactedDocs` を超えたという意味で、`--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞ります。変更された文書自身も、削除されたものを除き、常に数えられます。
 
 ## 4. focused profile での素早い確認
 
@@ -48,7 +48,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、Codex・agy で検証した文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった場合に起きることがあります。Claude Code の agent で検証した文書が 3 回目の request の後も未解決なら、代わりに `undecided external-incomplete` で終わります。engine が `capability-missing:<layer>` で拒否したら、その層を `enabledLayers` に追加します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、Codex・agy で検証した文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった場合に起きることがあります。Claude Code の agent で検証した文書が 3 回目の request の後も未解決なら、代わりに `undecided external-incomplete` で終わります。engine が `capability-missing:<layer>` で拒否したら、不足する層が名前順で 1 つずつ示されるため、選んだ profile に必要な層をすべて `enabledLayers` に追加します（`extended` には 7 層すべてが必要です）。`--profile` を省くと run を開く前に既定の `standard` の層が必要です。`L-PROJECT` を外した場合は `--profile focused` を指定します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 
@@ -70,7 +70,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.5.0 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
 ```
 
-期待: 説明と次の一手。よくある場合: `anchor-missing`（`--full` で実行）、`worktree-modified`（`worktreeDiff` を確認する。書込み元を止めて再実行するか、report に `worktreeDiffIgnoredOnly` の案内があれば、対象となる Git が無視する場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移す）、`worktree-too-large`（作業木の entry 数か byte 数を減らして再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
+期待: 説明と次の一手。よくある場合: `anchor-missing`（その run が `--profile` を付けていた場合は同じ `--profile` を付け、`--full` で実行）、`worktree-modified`（`worktreeDiff` を確認する。書込み元を止めて再実行するか、report に `worktreeDiffIgnoredOnly` の案内があれば、対象となる Git が無視する場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移す）、`worktree-too-large`（作業木の entry 数か byte 数を減らして再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
 
 ## 8. 開いたままの run を再開または放棄する
 
@@ -90,7 +90,7 @@ Claude Code の外では engine に Codex backend か、設定済みの agy が�
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
-出力の最終行を JSON として読み、`outcome` を確認します。`reportPath` があるのは report が公開された場合だけです（例: `undecided backend-unavailable` には report も `reportPath` もありません）。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。
+engine の結果では出力の最終行を JSON として読み、`outcome` を確認します。`reportPath` があるのは report が公開された場合だけです（例: `undecided backend-unavailable` には report も `reportPath` もありません）。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 2 はコマンド行の解析で未知の option・未知の `--profile` 値・command のない呼び出しが拒否されたことを示し、JSON の結果行の代わりに `usage:` で始まる使い方が標準エラーに表示されます。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。無効な `--backend` 値は engine が `backend-invalid` として扱い、終了値 3 になります。
 
 skill 自体を非対話で動かすには、リポジトリで Claude Code を print mode で使います。
 
