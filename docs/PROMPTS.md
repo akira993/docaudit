@@ -67,7 +67,7 @@ Expected: the dry run writes nothing and exits 0 with `convertible` (the target 
 ## 7. Understand an undecided or REFUSED result
 
 ```
-The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.5.0 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
+The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.5.1 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
 ```
 
 Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full` with the same `--profile` if that run used one), `worktree-modified` (read `worktreeDiff`; stop the writer and rerun, or, when the report gives `worktreeDiffIgnoredOnly` guidance, list an eligible Git-ignored location in `worktree.tolerateChangesIn` or move the output outside the working tree), `worktree-too-large` (reduce the tree's entry or byte count and rerun), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).
