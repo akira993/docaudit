@@ -45,7 +45,7 @@ VERDICT_CRITERIA: str = (
     "</verdict_criteria>"
 )
 
-LINKS_CRITERION = "<links>A separate deterministic check verifies in this run that each Markdown inline link and reference definition with a relative target in this document points to an existing file. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
+LINKS_CRITERION = "<links>During this audit, a separate deterministic check verifies that each Markdown inline link and reference definition with a relative target in this document points to an existing file or directory. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
 
 
 def _links_checked(ctx, path):

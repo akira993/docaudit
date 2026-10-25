@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from skills.audit.engine import c_dispatch, c_workflow, procs
+from skills.audit.engine import c_agy, c_dispatch, c_workflow, procs
 from tests.test_c_workflow import workflow_context
 
 
 CAUSES = "<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check, on every route to the condition the document names, that the remedy resolves it; treat a failed or incomplete remedy as a mismatch. Do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>"
 READING = "<reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser. Before returning PASS for a claim about generated output, read the file that produces that output.</reading>"
-LINKS = "<links>A separate deterministic check verifies in this run that each Markdown inline link and reference definition with a relative target in this document points to an existing file. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
+LINKS = "<links>During this audit, a separate deterministic check verifies that each Markdown inline link and reference definition with a relative target in this document points to an existing file or directory. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
 
 
 def criteria(prompt):
@@ -71,6 +71,17 @@ class JudgeLinksFlagTests(unittest.TestCase):
                         if checked:
                             self.assertIn(LINKS + "\n<evidence>", block)
                         self.assertEqual(block.replace(LINKS + "\n", ""), c_dispatch.VERDICT_CRITERIA)
+
+    def test_agy_accepts_full_prompt_with_and_without_links(self):
+        for layers, checked in ((["L-DOC", "L-PROJECT"], True), (["L-DOC"], False)):
+            with self.subTest(layers=layers), workflow_context() as (_, ctx):
+                ctx["manifest"]["enabledLayers"] = layers
+                ctx["config_facts"] = {"documentChecks": {"layerGlobs": {"links": []}}}
+                item = ctx["scope"]["impacted"][0]
+                prompt = c_dispatch._prompt(ctx, item, {"runId": ctx["run_id"], "path": item["path"]})
+                self.assertEqual(LINKS in prompt, checked)
+                agy_prompt = c_agy.to_agy_prompt(prompt)
+                self.assertEqual(LINKS in agy_prompt, checked)
 
     def test_criteria_match_agent_and_workflow_without_links(self):
         agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
