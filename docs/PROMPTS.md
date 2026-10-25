@@ -82,6 +82,14 @@ docaudit refused to start because an earlier run is still open; its result line 
 
 Expected: the run reaches `closed`, and the next audit can start. Abandoning records the run as closed without a verdict (`undecided abandoned`); the anchor does not move. If `history.jsonl` itself is corrupt, abandonment fails with `history-corrupt` (exit status 4), leaving the run open; repair history first. A corrupt anchor file alone does not prevent abandonment.
 
+## Preview the audit scope
+
+```text
+Run python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root . and show the JSON's changed and impacted documents and each document's provenance, including self and regression. Stop after the preview.
+```
+
+`scope` accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`, and uses the same configuration, anchor, history, and profile selection. It prints one JSON object in the `scope.json` structure, without values for a new run. It opens no run, takes no lease or mutex, creates or changes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check. Exit status 0 means the preview was calculated; 3 means refusal with the pre-run refusal JSON and `reason`. No run records or report are created.
+
 ## 9. Scheduled or non-interactive runs
 
 Outside Claude Code the engine needs the Codex backend or a set-up agy (see [ADOPTION.md](ADOPTION.md), section 7). Name the backend so that the choice does not depend on what is installed: without `--backend` the engine takes the first usable of Codex and agy. From a shell or a scheduler:

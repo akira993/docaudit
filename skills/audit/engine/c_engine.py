@@ -285,21 +285,9 @@ def _profile_row(table, name: str):
 
 
 def _scope_and_plan(repo, config, requested_profile, mode, timeline, table):
-    facts = config.facts
-    corpus = timeline.call("C-SCOPE", __import_scope("compute_corpus"), repo, facts)
-    snapshot = timeline.call("C-SCOPE", __import_scope("snapshot_worktree"), repo, facts, corpus)
-    if requested_profile is not None:
-        scope = timeline.call("C-SCOPE", __import_scope("compute_scope_from"), repo, facts, requested_profile, mode, snapshot, corpus, table)
-        selected, source = requested_profile, "explicit"
-    else:
-        default = _default_row(table)["name"]
-        scope = timeline.call("C-SCOPE", __import_scope("compute_scope_from"), repo, facts, default, mode, snapshot, corpus, table)
-        proposed = scope["proposedProfile"]
-        selected, source = proposed, "classifier"
-        if proposed != default and mode != "full" and c_history.read_anchor(repo, proposed) is None:
-            selected, source = default, "classifier-demoted"
-        elif proposed != default:
-            scope = timeline.call("C-SCOPE", __import_scope("compute_scope_from"), repo, facts, proposed, mode, snapshot, corpus, table)
+    scope, selected, source = c_scope.select_scope(
+        repo, config.facts, requested_profile, mode, table, call=timeline.call,
+    )
     plan = timeline.call("C-PROFILE", c_profile.resolve, table, selected, config.capability)
     return scope, _plan_source(plan, source), _profile_row(table, selected)
 

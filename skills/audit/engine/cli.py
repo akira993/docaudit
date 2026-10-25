@@ -19,6 +19,10 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--backend")
     audit.add_argument("--fast", action="store_true")
     audit.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
+    scope = sub.add_parser("scope")
+    scope.add_argument("--full", action="store_true")
+    scope.add_argument("--profile", choices=tuple(row["name"] for row in PROFILE_TABLE))
+    scope.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     resume = sub.add_parser("resume")
     resume.add_argument("run_id")
     resume.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
@@ -42,6 +46,17 @@ def main(argv=None) -> int:
         return 0
     if args.command is None:
         parser().error("a command is required")
+    if args.command == "scope":
+        from . import c_scope
+        try:
+            output = c_scope.preview(args.repo_root, full=args.full, profile=args.profile)
+            code = 0
+        except Exception as exc:
+            output = {"nextAction": "abort", "runId": None, "outcome": None,
+                      "reason": getattr(exc, "reason", type(exc).__name__)}
+            code = 3
+        print(json.dumps(output, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+        return code
     from . import c_engine, c_migrate, c_run
     try:
         if args.command == "migrate":

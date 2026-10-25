@@ -106,10 +106,16 @@ def compute_changed(repo, anchor, snapshot, corpus, diff_globs):
         else: continue
         rows.append({"path":path,"status":status,"oldEntry":before,"newEntry":after,"kind":kind})
     return rows
-def _last_failed(repo, profile):
+def _last_failed(repo, profile, history=None):
     from . import c_history
-    return c_history.last_failed_paths(repo, profile)
-def compute_impacted(repo, facts, profile_name, mode, corpus, changed):
+    if history is None:
+        return c_history.last_failed_paths(repo, profile)
+    latest={}
+    for event in history:
+        if event["kind"]=="judgement" and event["data"].get("profileName")==profile:
+            latest[event["data"].get("path")]=event["data"].get("verdict")
+    return sorted(path for path,verdict in latest.items() if isinstance(path,str) and verdict=="FAIL")
+def compute_impacted(repo, facts, profile_name, mode, corpus, changed, *, history=None):
     f=_facts(facts); warnings=[]; found={}
     def add(path, why):
         if path not in corpus: warnings.append("impact-outside-corpus:"+path); return
@@ -140,7 +146,7 @@ def compute_impacted(repo, facts, profile_name, mode, corpus, changed):
         ratio=h.get("saturationWarnRatio",.5)
         if ratio and corpus and only/len(corpus)>=ratio: warnings.append("heuristic-saturation")
     if f["changes"].get("regressionRecheck"):
-        for path in _last_failed(repo,profile_name): add(path,"regression")
+        for path in _last_failed(repo,profile_name,history): add(path,"regression")
     result=[{"path":p,"provenance":found[p]} for p in sorted(found)]
     if len(result)>f["impact"]["maxImpactedDocs"]: raise ScopeRejected("impact-limit")
     return result,warnings
@@ -167,7 +173,7 @@ def _baseline(repo, anchor):
                 value=manifest.get(key)
                 if values[key] is None and isinstance(value,str): values[key]=value
     return {"runId":run_id,**values}
-def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profile_table):
+def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profile_table, *, history=None):
     """Compute a profile-specific scope from one already captured worktree view."""
     f=_facts(facts)
     from . import c_history
@@ -180,13 +186,14 @@ def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profil
         baseline_anchor=anchor
     if mode != "full" and anchor is None: raise ScopeRejected("anchor-missing")
     changed=[] if mode=="full" else compute_changed(repo,anchor,snapshot,corpus,f["changes"]["diffGlobs"])
-    impacted,warnings=compute_impacted(repo,f,profile_name,mode,corpus,changed)
+    impacted,warnings=compute_impacted(repo,f,profile_name,mode,corpus,changed,history=history)
     change_payload= snapshot if mode=="full" else {"anchor":anchor.get("snapshotDigest"),"changed":[{k:x[k] for k in ("status","path","oldEntry","newEntry")} for x in changed]}
     try: head=_git(repo,["rev-parse","HEAD"]).decode().strip() or None
     except ScopeRejected: head=None
     digest=_digest(snapshot)
     diff_bytes=sum(c_io.stat_regular(repo,x["path"]).st_size for x in changed if x["status"] != "deleted")
-    events=list(c_history.read_history(repo)); default=next(x["name"] for x in profile_table if x["default"])
+    events=list(c_history.read_history(repo)) if history is None else history
+    default=next(x["name"] for x in profile_table if x["default"])
     prior=next((x["data"].get("verdict") for x in reversed(events) if x["kind"]=="outcome" and x["data"].get("profileName")==default),None)
     proposed=propose_profile(mode,changed,impacted,diff_bytes,prior,profile_table)
     return {"mode":mode,"profileName":profile_name,"anchor":None if anchor is None else {k:anchor.get(k) for k in ("runId","acceptedAt","headCommit","snapshotDigest")}|{"documentsCount":len(anchor.get("documents",[]))},"baseline":_baseline(repo,baseline_anchor),"corpus":corpus,"changed":changed,"impacted":impacted,"changeSetHash":_digest(change_payload),"snapshot":snapshot,"snapshotDigest":digest,"corpusDigest":_digest(corpus),"documents":corpus,"headCommit":head,"diffBytes":diff_bytes,"proposedProfile":proposed,"warnings":sorted(warnings)}
@@ -194,3 +201,39 @@ def compute_scope_from(repo, facts, profile_name, mode, snapshot, corpus, profil
 def compute_scope(repo, facts, profile_name, mode, profile_table):
     f=_facts(facts); corpus=compute_corpus(repo,f); snapshot=snapshot_worktree(repo,f,corpus)
     return compute_scope_from(repo,f,profile_name,mode,snapshot,corpus,profile_table)
+
+def select_scope(repo, facts, requested_profile, mode, table, *, call=None, history=None):
+    """Select the same profile-specific scope for audits and read-only previews."""
+    from . import c_history
+    if call is None:
+        def call(component, function, *args, **kwargs):
+            return function(*args, **kwargs)
+    corpus=call("C-SCOPE",compute_corpus,repo,facts)
+    snapshot=call("C-SCOPE",snapshot_worktree,repo,facts,corpus)
+    def scope_for(profile):
+        return call("C-SCOPE",compute_scope_from,repo,facts,profile,mode,snapshot,corpus,table,history=history)
+    if requested_profile is not None:
+        return scope_for(requested_profile),requested_profile,"explicit"
+    default=next(row["name"] for row in table if row["default"])
+    scope=scope_for(default)
+    proposed=scope["proposedProfile"]
+    selected,source=proposed,"classifier"
+    if proposed!=default and mode!="full" and c_history.read_anchor(repo,proposed) is None:
+        selected,source=default,"classifier-demoted"
+    elif proposed!=default:
+        scope=scope_for(proposed)
+    return scope,selected,source
+
+def preview(repo_root, *, full=False, profile=None):
+    """Read configuration and history without creating state or taking locks."""
+    from . import c_config, c_history, c_profile
+    from .profiles import PROFILE_TABLE
+    c_profile.validate_table(PROFILE_TABLE)
+    with c_io.RepoRoot(repo_root) as repo:
+        config=c_config.load_config(repo)
+        c_profile.resolve(PROFILE_TABLE,profile,config.capability)
+        # The validated reader only reads files; its state fd is unused.
+        history=c_history._read_history_locked(repo,None)
+        scope,selected,_=select_scope(repo,config.facts,profile,"full" if full else "incremental",PROFILE_TABLE,history=history)
+        c_profile.resolve(PROFILE_TABLE,selected,config.capability)
+        return scope

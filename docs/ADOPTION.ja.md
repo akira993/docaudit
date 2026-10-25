@@ -137,6 +137,8 @@ Claude Code の外では同じ run をコマンドとして実行します。Cla
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
 ```
 
+読み取り専用の下見には `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` を実行します。`--full`・`--profile focused|standard|extended`・`--repo-root` を受け付け、既定値と設定・anchor・履歴・profile の選択は `audit` と同じです。`changed`・`impacted`・文書ごとの `provenance`（`self`・`regression` を含む）を、`scope.json` と同じ形の JSON 1 つとして出力し、新しい run の値は含めません。run を開かず、lease・mutex を取らず、リポジトリ・state・report の file やディレクトリを作成・変更せず、モデルや外部の backend CLI を呼ばず、作業木の整合性を照合しません。計算できれば終了値 0、計算や設定の問題で拒否するときは run 開始前と同じ `reason` 付きの拒否 JSON と終了値 3 を返します。
+
 ### backend を選ぶ
 
 文書を検証できる backend は 3 つです: Codex CLI、agy CLI、Claude Code の agent（Claude Code の中だけ）。
@@ -269,6 +271,8 @@ skill は前の session から残った run を回復しません。手作業か
 - **結果行。** engine 出力の最終行は 1 つの JSON object です。閉じた run では `nextAction`（`done` か `abort`）・`runId`・`outcome`、あれば `reason` と `reportPath`。workflow への引き渡しでは outcome の代わりに `nextAction: invoke-workflow` と `requestSeq`・`requestPath` が付き、backend の質問では `nextAction: choose-backend`・`runId` が null・`choices` が付いて run は開かれません。終了値 0 は engine が正常に終わったことを意味し、`undecided`・`REFUSED`・引き渡し・backend の質問を含みます。2 はコマンド行の解析で未知の option・未知の `--profile` 値・command のない呼び出しが拒否され、JSON の結果行の代わりに `usage:` で始まる使い方が標準エラーに表示されます。3 は run を開く前、または再開を始める前の拒否で、設定・profile・run 状態の問題に加え、引数の不整合（`accept-baseline-requires-full`・`backend-invalid`・`fast-requires-codex`）や対応しない platform（`io-unsupported-platform`）も含み、`reason` に名前が出ます。4 は run を開いた後、または再開が始まった後に続行できなかったことで、後からの `mutex-timeout` や report 名の使い切り（`path-exhausted`）も含みます。engine が扱う終了値 4 の中断では、結果行にその run の `runId` が入り、run は開いたままなので再開か放棄を選びます。
 - **report。** `report.path` に公開され、固定の front matter と、run・対象文書・所見・判定・anchor・計測・証跡の節を持ちます。見出しと定型句の大半は日本語です。所見ごとに 1 行が並びます。文書は verdict と食い違いの 1 行要約、それ以外の所見（project check・link・claim など）は severity と要約です。judgement の裏付けとなる証拠の文字列（Codex backend には rationale に `file:line` を引用するよう、Claude Code の agent にはリポジトリ相対の証拠を示すよう求めます）は、run の証拠台帳と履歴の `judgement` 行に、Claude Code の agent で検証した run ではさらに `runs/<runId>/requests/<seq>/judgements/` に保持されます。所見の安全でない要約と履歴の `judgement` 行は report と同じ規則で伏字にし、証拠台帳と `requests/<seq>/judgements/` は原文のままです。検証が始まる前に `undecided` で終わった run は report を公開しません。Run 節には `baseline` として基準にした anchor の判定役と engine の版を示し、今回と分かっている値が違えば `基準との違い` を追加します。内容が同じ文書でも判定が変わることがあります。
 - **state ディレクトリ。** `.claude/state/docaudit/history.jsonl` は run の outcome と judgement を 1 行ずつ記録し（ほかに `flip`・`anchor`・`legacy`・`migration` の行）、`anchors/<profile>.json` が現在の anchor、`runs/<runId>/` には封印された manifest・adapter 結果と judgement を含む証拠台帳・`verdict.json` が置かれることがありますが、`undecided backend-unavailable` で終わる run にはこれらがありません。state ディレクトリを commit する（履歴を version 管理下で監査可能にする）か無視する（clone ごとのローカル状態にする）かは一度決めてください。engine はどちらでも動きます。
+
+- **範囲の下見。** `scope` は範囲の JSON 自体を返し、run の記録・report・state ディレクトリを作りません。計算できれば終了値 0、拒否するときは `reason` 付きの拒否 JSON と終了値 3 を返します。
 
 ### outcome 早見表
 

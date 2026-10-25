@@ -331,6 +331,8 @@ for the full catalogue of kinds the engine writes.
 
 ## Engine run directory
 
+The read-only `scope` command prints the same `scope.json` structure to stdout, including `changed`, `impacted`, and per-document `provenance` (`self` and `regression` included), without values for a new run. It creates no run directory, state directory, report, or run records.
+
 Each run is stored below `.claude/state/docaudit/runs/<runId>/`. The engine
 owns these files:
 
@@ -583,6 +585,8 @@ overwrite a report. A `tmp-conflict` is recorded as undecided
 `report-publish-failed` with `tmp-conflict` as its detail. Unsafe engine-managed rendering values or other failed exclusive publication are also recorded as undecided `report-publish-failed`.
 
 ## CLI result and exit status
+
+`python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` previews the scope using the same configuration, anchor, history, and profile selection as `audit`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`. Success prints one JSON object in the `scope.json` structure and exits 0; calculation or configuration refusal prints the pre-run refusal JSON (`nextAction: abort`, null `runId` and `outcome`, and `reason`) and exits 3. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check.
 
 The final stdout line is one JSON object. A closed or aborted operation uses:
 
