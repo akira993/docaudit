@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from . import c_evidence, c_io
+from .c_dispatch import _links_checked
 from .deps import AdapterResult
 
 
@@ -157,6 +158,7 @@ def _scope_documents(ctx):
             "path": path,
             "provenance": item.get("provenance", []),
             "contentHash": content_hash,
+            "deterministicLinksChecked": _links_checked(ctx, path),
         })
     return result
 

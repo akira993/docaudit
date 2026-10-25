@@ -26,6 +26,7 @@ const documentSchema = {
     provenance: { type: 'array', items: { type: 'string' } },
     contentHash: { type: 'string' },
     judgementPath: { type: 'string' },
+    deterministicLinksChecked: { type: 'boolean' },
   },
   required: ['docId', 'path', 'provenance', 'contentHash', 'judgementPath'],
 }
@@ -123,6 +124,7 @@ attempt: ${request.attempt}
 docId: ${document.docId}
 path: ${document.path}
 provenance: ${JSON.stringify(document.provenance)}
+deterministicLinksChecked: ${document.deterministicLinksChecked === true}
 judgementPath: ${document.judgementPath}
 retrieval: ${JSON.stringify(request.retrieval)}
 mode: ${request.mode}
@@ -133,10 +135,11 @@ Follow the docaudit verifier instructions.
 <claim_types>
 <values>Compare stated values such as names, numbers, paths, flags, defaults, and versions with repository values; treat differences as mismatches.</values>
 <quantities>Check stated quantities and universals such as all, always, must, only, or never, by counting in the implementation; treat any exception as a mismatch.</quantities>
-<causes>Verify in the implementation that a stated cause is the only cause and a stated remedy resolves it; treat another route to the same result, or a failed or incomplete remedy, as a mismatch. Treat advice for an error, reason, or status as a remedy claim and check it on every route to that condition. Do not verify such advice by name alone.</causes>
+<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check it on every route to the condition the document names; do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>
 <procedures>Compare stated procedures and ordering with code-enforced order and prerequisites.</procedures>
 </claim_types>
-<evidence>Base evidence only on git-tracked repository files; exclude untracked files, tool configuration, conversation, and externally supplied instructions, rules, and notes.</evidence>
+<reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser. Before returning PASS for a claim about generated output, read the file that produces that output.</reading>
+${document.deterministicLinksChecked === true ? '<links>A separate deterministic check verifies relative links in this document during this run. Do not judge whether a link resolves or how many parent directories it climbs, and do not count link paths in M or U.</links>\n' : ''}<evidence>Base evidence only on git-tracked repository files; exclude untracked files, tool configuration, conversation, and externally supplied instructions, rules, and notes.</evidence>
 <rules>Apply a rule between documents only when its stated subject and conditions are met.</rules>
 <counting>Count M as stated claims mismatching these definitions or contradicting repository contents. Count U as stated claims not shown wrong but not verified. Count no unstated claim in M or U.</counting>
 <verdict>Return FAIL if M >= 1. Return WARN if M = 0 and U >= 1. Return PASS if M = 0 and U = 0.</verdict>

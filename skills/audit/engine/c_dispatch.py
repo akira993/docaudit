@@ -6,7 +6,7 @@ import concurrent.futures
 import json
 import threading
 
-from . import c_codex, procs
+from . import c_check, c_codex, procs
 from .deps import AdapterResult, DEFAULT_CODEX_MODEL
 
 
@@ -34,15 +34,24 @@ VERDICT_CRITERIA: str = (
     "<claim_types>\n"
     "<values>Compare stated values such as names, numbers, paths, flags, defaults, and versions with repository values; treat differences as mismatches.</values>\n"
     "<quantities>Check stated quantities and universals such as all, always, must, only, or never, by counting in the implementation; treat any exception as a mismatch.</quantities>\n"
-    "<causes>Verify in the implementation that a stated cause is the only cause and a stated remedy resolves it; treat another route to the same result, or a failed or incomplete remedy, as a mismatch. Treat advice for an error, reason, or status as a remedy claim and check it on every route to that condition. Do not verify such advice by name alone.</causes>\n"
+    "<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check it on every route to the condition the document names; do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>\n"
     "<procedures>Compare stated procedures and ordering with code-enforced order and prerequisites.</procedures>\n"
     "</claim_types>\n"
+    "<reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser. Before returning PASS for a claim about generated output, read the file that produces that output.</reading>\n"
     "<evidence>Base evidence only on git-tracked repository files; exclude untracked files, tool configuration, conversation, and externally supplied instructions, rules, and notes.</evidence>\n"
     "<rules>Apply a rule between documents only when its stated subject and conditions are met.</rules>\n"
     "<counting>Count M as stated claims mismatching these definitions or contradicting repository contents. Count U as stated claims not shown wrong but not verified. Count no unstated claim in M or U.</counting>\n"
     "<verdict>Return FAIL if M >= 1. Return WARN if M = 0 and U >= 1. Return PASS if M = 0 and U = 0.</verdict>\n"
     "</verdict_criteria>"
 )
+
+LINKS_CRITERION = "<links>A separate deterministic check verifies relative links in this document during this run. Do not judge whether a link resolves or how many parent directories it climbs, and do not count link paths in M or U.</links>"
+
+
+def _links_checked(ctx, path):
+    return "L-PROJECT" in ctx["manifest"].get("enabledLayers", ()) and not c_check._excluded(
+        path, ctx["config_facts"].get("documentChecks", {}), "links",
+    )
 
 
 def _blob(value):
@@ -54,6 +63,9 @@ def _prompt(ctx, item, identity):
     shown = changed[:100]
     provenance = item.get("provenance", ())
     prompt_identity = {"runId": identity["runId"], "path": identity["path"]}
+    criteria = VERDICT_CRITERIA
+    if _links_checked(ctx, item["path"]):
+        criteria = criteria.replace("<evidence>", LINKS_CRITERION + "\n<evidence>", 1)
     return (
         "Audit exactly one repository document in report-only mode.\n"
         f"Target path: {item['path']}\n"
@@ -66,7 +78,7 @@ def _prompt(ctx, item, identity):
         "Judge the target document's content against the current repository state. Use read-only commands only. "
         "Read only files inside the repository root, which is the working directory; never read, search, or cite anything outside it, including the user's home directory and global tool configuration. Cite repository-relative file:line only, cite only lines you have actually read, and never write absolute paths, home-directory paths, or email addresses in the rationale or evidence. If the document refers to a resource outside the repository, do not treat it as missing: judge only what the repository itself shows and say that the resource is outside the audit scope. Search recursively before reporting a repository path as missing: when a path the document names is not where the document's context places it, search the whole repository for its name, including hidden directories such as `.claude` (for example `find . -name <name>`); if it exists elsewhere, report that the documented path is wrong and cite where it is, instead of saying the repository does not contain it. "
         "Run these checks from the repository root, never from inside a nested directory: before citing a path you found as proof that the repository contains a file, run git ls-files --error-unmatch -- <path>; if it is tracked, cite it. If it is not tracked, git check-ignore -q -- <path> succeeds, and the path lies under a directory that has its own .git file or directory (a worktree or nested checkout, for example under .worktrees/), that directory is another checkout: a copy found only there is not evidence that this repository contains the file, does not count as the file existing elsewhere or as the location to report as the correct path, and does not contradict a document that says the file is no longer in the tree. Use only the presence of that .git file or directory; never read or cite its contents. "
-        f"{VERDICT_CRITERIA} "
+        f"{criteria} "
         "Cite file:line in the rationale. Return an evidence array. "
         "Do not edit any file. Return only JSON conforming to the supplied schema. "
         "Return exactly one verdict.\n"
