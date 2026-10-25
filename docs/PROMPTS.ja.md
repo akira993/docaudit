@@ -82,14 +82,6 @@ skill は前の session から残った run を回復しないので、明示的
 
 期待: run が `closed` に到達し、次の監査を始められます。放棄は verdict なしで run を closed として記録し（`undecided abandoned`）、anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。anchor file だけが壊れている場合は放棄できます。
 
-## 監査範囲の下見
-
-```text
-python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root . を実行して、JSON の changed と impacted の文書と、文書ごとの provenance（self・regression を含む）を見せて。下見だけで止めて。
-```
-
-`scope` は `--full`・`--profile focused|standard|extended`・`--repo-root` を受け付け、既定値と設定・anchor・履歴・profile の選択は `audit` と同じです。`scope.json` と同じ形の JSON 1 つを出力し、新しい run の値は含めません。run を開かず、lease・mutex を取らず、リポジトリ・state・report の file やディレクトリを作成・変更せず、モデルや外部の backend CLI を呼ばず、作業木の整合性を照合しません。計算できれば終了値 0、拒否するときは run 開始前と同じ `reason` 付きの拒否 JSON と終了値 3 を返します。run の記録や report は作りません。
-
 ## 9. 定期実行・非対話での実行
 
 Claude Code の外では engine に Codex backend か、設定済みの agy が必要です（[ADOPTION.ja.md](ADOPTION.ja.md) の第 7 節）。何が install されているかに選択が左右されないよう backend を明示します。`--backend` を付けないと、engine は Codex と agy のうち最初に使えるものを取ります。shell やスケジューラから:
@@ -107,3 +99,11 @@ claude -p '/docaudit:audit --backend codex' --permission-mode acceptEdits --allo
 ```
 
 期待: 対話実行と同じ outcome。session が workflow とその agent を実行できる必要があり、上のツール一覧がそれを許可します。print mode でも `--backend codex`（または別の backend の指名）を残してください。そこでは backend の質問に答える人がおらず、質問の終わり方によって skill は engine の既定の順か先頭の選択肢を取り、先頭は Codex が使えるときは Codex になります。
+
+## 10. 監査範囲の下見
+
+```text
+python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root . を実行して、JSON の changed と impacted の文書と、文書ごとの provenance（self・regression を含む）を見せて。下見だけで止めて。
+```
+
+`scope` は `--full`・`--profile focused|standard|extended`・`--repo-root` を受け付け、既定値と設定・anchor・履歴・profile の選択は `audit` と同じです。`scope.json` と同じ形の JSON 1 つを出力します。run を開かず、lease・mutex を取らず、リポジトリ・state・report の file やディレクトリを作成・変更せず、モデルや外部の backend CLI を呼ばず、作業木の整合性を照合しません。計算できれば終了値 0、拒否するときは run 開始前と同じ `reason` 付きの拒否 JSON と終了値 3 を返します。run の記録や report は作りません。

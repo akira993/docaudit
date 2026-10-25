@@ -137,7 +137,7 @@ Claude Code の外では同じ run をコマンドとして実行します。Cla
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
 ```
 
-読み取り専用の下見には `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` を実行します。`--full`・`--profile focused|standard|extended`・`--repo-root` を受け付け、既定値と設定・anchor・履歴・profile の選択は `audit` と同じです。`changed`・`impacted`・文書ごとの `provenance`（`self`・`regression` を含む）を、`scope.json` と同じ形の JSON 1 つとして出力し、新しい run の値は含めません。run を開かず、lease・mutex を取らず、リポジトリ・state・report の file やディレクトリを作成・変更せず、モデルや外部の backend CLI を呼ばず、作業木の整合性を照合しません。計算できれば終了値 0、計算や設定の問題で拒否するときは run 開始前と同じ `reason` 付きの拒否 JSON と終了値 3 を返します。
+読み取り専用の下見には `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` を実行します。`--full`・`--profile focused|standard|extended`・`--repo-root` を受け付け、既定値と設定・anchor・履歴・profile の選択は `audit` と同じです。`changed`・`impacted`・文書ごとの `provenance`（`self`・`regression` を含む）を、`scope.json` と同じ形の JSON 1 つとして出力します。run を開かず、lease・mutex を取らず、リポジトリ・state・report の file やディレクトリを作成・変更せず、モデルや外部の backend CLI を呼ばず、作業木の整合性を照合しません。計算できれば終了値 0、計算や設定の問題で拒否するときは run 開始前と同じ `reason` 付きの拒否 JSON と終了値 3 を返します。
 
 ### backend を選ぶ
 

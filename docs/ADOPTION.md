@@ -139,7 +139,7 @@ Outside Claude Code the same run is a command; it needs the Codex backend or a s
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --full --profile standard --repo-root /path/to/repo
 ```
 
-For a read-only preview, run `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`, and uses the same configuration, anchor, history, and profile selection. It prints one JSON object in the `scope.json` structure, including `changed`, `impacted`, and per-document `provenance` such as `self` and `regression`, without values for a new run. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check. Success exits 0; calculation or configuration refusal exits 3 with the pre-run refusal JSON and `reason`.
+For a read-only preview, run `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`, and uses the same configuration, anchor, history, and profile selection. It prints one JSON object in the `scope.json` structure, including `changed`, `impacted`, and per-document `provenance` such as `self` and `regression`. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check. Success exits 0; calculation or configuration refusal exits 3 with the pre-run refusal JSON and `reason`.
 
 ### Choose the backend
 

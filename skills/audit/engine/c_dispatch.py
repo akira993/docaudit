@@ -34,7 +34,7 @@ VERDICT_CRITERIA: str = (
     "<claim_types>\n"
     "<values>Compare stated values such as names, numbers, paths, flags, defaults, and versions with repository values; treat differences as mismatches.</values>\n"
     "<quantities>Check stated quantities and universals such as all, always, must, only, or never, by counting in the implementation; treat any exception as a mismatch.</quantities>\n"
-    "<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check it on every route to the condition the document names; do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>\n"
+    "<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check, on every route to the condition the document names, that the remedy resolves it; treat a failed or incomplete remedy as a mismatch. Do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>\n"
     "<procedures>Compare stated procedures and ordering with code-enforced order and prerequisites.</procedures>\n"
     "</claim_types>\n"
     "<reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser. Before returning PASS for a claim about generated output, read the file that produces that output.</reading>\n"
@@ -45,7 +45,7 @@ VERDICT_CRITERIA: str = (
     "</verdict_criteria>"
 )
 
-LINKS_CRITERION = "<links>A separate deterministic check verifies relative links in this document during this run. Do not judge whether a link resolves or how many parent directories it climbs, and do not count link paths in M or U.</links>"
+LINKS_CRITERION = "<links>A separate deterministic check verifies in this run that each Markdown inline link and reference definition with a relative target in this document points to an existing file. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
 
 
 def _links_checked(ctx, path):

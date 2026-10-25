@@ -331,7 +331,7 @@ for the full catalogue of kinds the engine writes.
 
 ## Engine run directory
 
-The read-only `scope` command prints the same `scope.json` structure to stdout, including `changed`, `impacted`, and per-document `provenance` (`self` and `regression` included), without values for a new run. It creates no run directory, state directory, report, or run records.
+The read-only `scope` command prints the same `scope.json` structure to stdout, including `changed`, `impacted`, and per-document `provenance` (`self` and `regression` included). It creates no run directory, state directory, report, or run records.
 
 Each run is stored below `.claude/state/docaudit/runs/<runId>/`. The engine
 owns these files:
@@ -837,8 +837,10 @@ The engine writes `R/requests/request-<k>.json` before waiting. It has exactly
 these fields:
 
 ```json
-{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"index|grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
+{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","deterministicLinksChecked":true|false,"judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"index|grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
 ```
+
+`deterministicLinksChecked` is true only when L-PROJECT is enabled in this run and the document does not match `documentChecks.layerGlobs.links`.
 
 `indexDb` and `indexCwd` are absolute paths when method is `index`; otherwise
 they are null. `indexLang` is `ja-jp` for an index and null for grep. `changed`

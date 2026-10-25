@@ -51,14 +51,14 @@ class CliScopeTests(unittest.TestCase):
                 "skills.audit.engine.c_run.state_mutex",
                 "skills.audit.engine.c_io.ensure_dir_fd",
                 "skills.audit.engine.c_engine.production",
-                "skills.audit.engine.c_engine._check_tolerated_paths",
             ):
                 stack.enter_context(mock.patch(target, side_effect=forbidden))
             original = procs.run_subprocess
 
             def git_only(argv, **kwargs):
                 self.assertEqual(argv[0], "git")
-                self.assertIn(argv[1], {"ls-files", "rev-parse"})
+                command = argv[2] if argv[1] == "--literal-pathspecs" else argv[1]
+                self.assertIn(command, {"ls-files", "rev-parse", "check-ignore"})
                 return original(argv, **kwargs)
 
             stack.enter_context(mock.patch.object(procs, "run_subprocess", side_effect=git_only))
@@ -114,6 +114,8 @@ class CliScopeTests(unittest.TestCase):
         return json.loads(target.read_text(encoding="utf-8"))
 
     def test_full_without_state_matches_audit_scope(self):
+        self.config["worktree"] = {"tolerateChangesIn": ["ignored/"]}
+        self.write_config()
         code, scope = self.preview("--full")
         self.assertEqual(code, 0)
         self.assertFalse((self.root / c_run.STATE_REL).exists())
@@ -180,6 +182,22 @@ class CliScopeTests(unittest.TestCase):
         code, output = self.preview("--full")
         self.assertEqual(code, 3)
         self.assertEqual(output["reason"], "config-invalid:json")
+        self.assertIsNone(output["runId"])
+        self.assertFalse((self.root / c_run.STATE_REL).exists())
+
+    def test_tracked_tolerated_path_refuses_without_writes(self):
+        self.config["worktree"] = {"tolerateChangesIn": ["src/app.py"]}
+        self.write_config()
+        code, output = self.preview("--full")
+        self.assertEqual((code, output["reason"]), (3, "config-invalid:worktree.tolerateChangesIn"))
+        self.assertIsNone(output["runId"])
+        self.assertFalse((self.root / c_run.STATE_REL).exists())
+
+    def test_nonignored_tolerated_path_refuses_without_writes(self):
+        self.config["worktree"] = {"tolerateChangesIn": ["unignored/"]}
+        self.write_config()
+        code, output = self.preview("--full")
+        self.assertEqual((code, output["reason"]), (3, "config-invalid:worktree.tolerateChangesIn"))
         self.assertIsNone(output["runId"])
         self.assertFalse((self.root / c_run.STATE_REL).exists())
 

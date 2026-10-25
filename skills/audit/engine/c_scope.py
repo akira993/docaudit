@@ -226,11 +226,12 @@ def select_scope(repo, facts, requested_profile, mode, table, *, call=None, hist
 
 def preview(repo_root, *, full=False, profile=None):
     """Read configuration and history without creating state or taking locks."""
-    from . import c_config, c_history, c_profile
+    from . import c_config, c_engine, c_history, c_profile
     from .profiles import PROFILE_TABLE
     c_profile.validate_table(PROFILE_TABLE)
     with c_io.RepoRoot(repo_root) as repo:
         config=c_config.load_config(repo)
+        c_engine._check_tolerated_paths(repo,config)
         c_profile.resolve(PROFILE_TABLE,profile,config.capability)
         # The validated reader only reads files; its state fd is unused.
         history=c_history._read_history_locked(repo,None)

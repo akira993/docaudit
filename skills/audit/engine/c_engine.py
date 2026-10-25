@@ -292,11 +292,6 @@ def _scope_and_plan(repo, config, requested_profile, mode, timeline, table):
     return scope, _plan_source(plan, source), _profile_row(table, selected)
 
 
-def __import_scope(name):
-    from . import c_scope
-    return getattr(c_scope, name)
-
-
 def _workflow_docs(plan, capability, scope):
     resolved = c_evidence.deps.resolve_backend(plan["backendDirective"], capability)
     if not isinstance(resolved, str) or not resolved.startswith("workflow:"):
