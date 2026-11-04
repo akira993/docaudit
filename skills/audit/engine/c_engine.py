@@ -938,20 +938,10 @@ def _retrieval_stage(repo, handle, dependencies, resolved, scope):
         }
         return summary, value
     if resolved.startswith("workflow:"):
-        hook = dependencies.fault_hooks.get("before-retrieval-copy")
-        try:
-            summary, detail = c_retrieval.prepare(
-                repo, handle.run_id, scope.get("corpus", ()),
-                env=dict(os.environ), hook=hook,
-            )
-        except c_retrieval.RetrievalRejected as exc:
-            if exc.reason == "corpus-unreadable":
-                raise
-            summary = {
-                "method": "grep", "indexAvailable": False, "indexHealthy": False,
-                "reason": exc.reason, "files": None, "chunks": None,
-            }
-            detail = {"method": "grep", "indexDb": None, "indexCwd": None, "indexLang": None}
+        summary, detail = c_retrieval.prepare(
+            repo, scope.get("corpus", ()),
+            hook=dependencies.fault_hooks.get("before-retrieval-check"),
+        )
     else:
         summary = {
             "method": "backend-native", "indexAvailable": False,
@@ -960,14 +950,10 @@ def _retrieval_stage(repo, handle, dependencies, resolved, scope):
         detail = {"method": "backend-native", "indexDb": None, "indexCwd": None, "indexLang": None}
     stored = dict(summary)
     stored.update(detail)
-    try:
-        c_io.write_atomic(
-            handle.state_dir_fd, _run_rel(handle.run_id, "retrieval.json"),
-            _canonical(stored),
-        )
-    except (OSError, c_io.IoRejected):
-        c_retrieval.cleanup_path(repo, handle.run_id, detail.get("indexDb"))
-        raise
+    c_io.write_atomic(
+        handle.state_dir_fd, _run_rel(handle.run_id, "retrieval.json"),
+        _canonical(stored),
+    )
     return summary, stored
 
 
@@ -1027,12 +1013,10 @@ def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, confi
     try:
         retrieval, _ = _retrieval_stage(repo, handle, dependencies, resolved, scope)
     except c_retrieval.RetrievalRejected as exc:
-        if exc.reason == "corpus-unreadable":
-            return _early(
-                repo, handle, dependencies, journal, timeline,
-                exc.reason, plan.profileName,
-            )
-        raise
+        return _early(
+            repo, handle, dependencies, journal, timeline,
+            exc.reason, plan.profileName,
+        )
     report_path = c_report.plan_publication(repo, config.facts["report"]["path"], handle.run_id)
     workflow_docs = _workflow_docs(plan.document(), capability_doc, scope)
     allowed = _guard_stage2(
@@ -1045,7 +1029,7 @@ def _drive_new(repo, handle, guard, requested_profile, mode, dependencies, confi
             capability_doc, row, report_path, allowed, timeline,
             retrieval=retrieval, tree_digest_before=digest_before, accept_baseline=accept_baseline,
         )
-    except (c_evidence.EvidenceRejected, c_retrieval.RetrievalRejected) as exc:
+    except c_evidence.EvidenceRejected as exc:
         if exc.reason == "worktree-too-large":
             return _early(repo, handle, dependencies, journal, timeline, exc.reason, plan.profileName)
         if exc.reason == "corpus-unreadable":
@@ -1224,12 +1208,10 @@ def _drive_resume(repo, handle, guard, dependencies):
     try:
         retrieval, _ = _retrieval_stage(repo, handle, dependencies, resolved, scope)
     except c_retrieval.RetrievalRejected as exc:
-        if exc.reason == "corpus-unreadable":
-            return _early(
-                repo, handle, dependencies, journal, timeline,
-                exc.reason, plan["profileName"],
-            )
-        raise
+        return _early(
+            repo, handle, dependencies, journal, timeline,
+            exc.reason, plan["profileName"],
+        )
     workflow_docs = _workflow_docs(plan, capability, scope)
     report_path = c_report.plan_publication(repo, config.facts["report"]["path"], handle.run_id)
     # A published report is the selected path even though planning now sees it occupied.
@@ -1299,8 +1281,7 @@ def run(repo_root, full: bool = False, profile: str | None = None, deps: EngineD
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
                 except (OSError, c_io.IoRejected, c_run.RunRejected, c_profile.ProfileRejected,
                         c_report.ReportPublishFailed,
-                        c_evidence.EvidenceRejected, c_history.HistoryRejected,
-                        c_retrieval.RetrievalRejected) as exc:
+                        c_evidence.EvidenceRejected, c_history.HistoryRejected) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
             finally:
                 if handle is not None and handle.lease_fd >= 0:
@@ -1327,7 +1308,7 @@ def resume(repo_root, run_id: str, deps: EngineDeps | None = None):
                     return _handle_engine_rejection(repo, handle, dependencies, exc)
                 except (OSError, c_io.IoRejected, c_profile.ProfileRejected,
                         c_evidence.EvidenceRejected,
-                        c_history.HistoryRejected, c_retrieval.RetrievalRejected,
+                        c_history.HistoryRejected,
                         c_run.RunRejected, c_report.ReportPublishFailed) as exc:
                     return _next(4, "abort", handle.run_id, None, getattr(exc, "reason", type(exc).__name__))
             finally:

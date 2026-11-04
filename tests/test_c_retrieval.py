@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import errno
 import hashlib
 import json
 import os
@@ -13,309 +12,134 @@ from skills.audit.engine import c_retrieval
 from tests.fixtures import fake_mdq, init_repo
 
 
-def _env(base: Path, path_dir: Path | None = None):
-    value = {
-        "PATH": str(path_dir) if path_dir is not None else "",
-        "HOME": str(base / "home"),
-        "TMPDIR": str(base),
-        "LANG": "C",
-        "LC_ALL": "C",
-    }
-    return value
+def _env(base, path_dir=None):
+    return {"PATH": str(path_dir) if path_dir else "", "TMPDIR": str(base)}
 
 
-def _store_retrieval(repo: Path, run_id: str, details: dict) -> None:
-    run_dir = repo / ".claude" / "state" / "docaudit" / "runs" / run_id
-    run_dir.mkdir(parents=True)
-    (run_dir / "retrieval.json").write_text(
-        json.dumps(details), encoding="utf-8",
-    )
+def _legacy_index(base, repo, run_id):
+    path = base / ("docaudit-index-" + run_id)
+    path.mkdir()
+    (path / "owner.json").write_text(json.dumps({
+        "repo": hashlib.sha256(os.path.realpath(repo).encode()).hexdigest(),
+        "runId": run_id,
+    }))
+    (path / "index.sqlite").write_bytes(b"old database")
+    return path
 
 
 class RetrievalTests(unittest.TestCase):
-    def test_temporary_mirror_write_failure_falls_back_and_removes_index(self):
+    def prepare(self, base, repo, path_dir=None, corpus=("docs/a.md",)):
+        with mock.patch.dict(os.environ, _env(base, path_dir)):
+            manifest, details = c_retrieval.prepare(repo, list(corpus))
+        self.assertEqual(manifest, {
+            "method": "grep", "indexAvailable": False, "indexHealthy": False,
+            "reason": "mdq-retired", "files": None, "chunks": None,
+        })
+        self.assertEqual(details, {
+            "method": "grep", "indexDb": None, "indexCwd": None, "indexLang": None,
+        })
+        return manifest, details
+
+    def test_no_temporary_mirror_is_written(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            before = sorted(p.relative_to(base).as_posix() for p in base.rglob("*"))
+            with mock.patch("os.mkdir", side_effect=AssertionError("must not create a mirror")):
+                self.prepare(base, repo)
+            self.assertEqual(before, sorted(p.relative_to(base).as_posix() for p in base.rglob("*")))
+
+    def test_healthy_mdq_is_never_invoked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            binary, path_dir = fake_mdq(base)
+            marker = base / "mdq-called"
+            binary.write_text("#!/bin/sh\nprintf called > '" + str(marker) + "'\nexit 9\n")
+            for locale in ("C", "ja_JP.UTF-8"):
+                with self.subTest(locale=locale), mock.patch.dict(os.environ, {"LANG": locale}):
+                    self.prepare(base, repo, path_dir)
+            self.assertFalse(marker.exists())
+
+    def test_repository_tmpdir_does_not_create_an_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            self.prepare(repo, repo)
+            self.assertFalse((repo / ".mdq").exists())
+
+    def test_corpus_symlink_is_rejected_without_following_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            outside = base / "outside.md"; outside.write_text("external")
+            (repo / "docs" / "external.md").symlink_to(outside)
             _, path_dir = fake_mdq(base)
-            real_exclusive_file = c_retrieval.exclusive_file
+            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                self.prepare(base, repo, path_dir, corpus=("docs/a.md", "docs/external.md"))
+            self.assertEqual(outside.read_text(), "external")
 
-            def fail_mirror_write(path, data=b""):
-                if path.endswith(os.path.join("corpus", "docs", "a.md")):
-                    raise OSError(errno.ENOSPC, "fixture storage full")
-                return real_exclusive_file(path, data)
-
-            with mock.patch.object(
-                c_retrieval, "exclusive_file", side_effect=fail_mirror_write,
-            ):
-                manifest, details = c_retrieval.prepare(
-                    repo, "run-storage-full", ["docs/a.md"], _env(base, path_dir),
-                )
-
-            self.assertEqual(
-                (manifest["method"], manifest["indexAvailable"],
-                 manifest["indexHealthy"], manifest["reason"]),
-                ("grep", True, False, "index-unavailable"),
-            )
-            self.assertEqual(details, {
-                "method": "grep", "indexDb": None,
-                "indexCwd": None, "indexLang": None,
-            })
-            self.assertFalse((base / "docaudit-index-run-storage-full").exists())
-
-    def test_healthy_index_uses_a_corpus_only_independent_mirror(self):
+    def test_missing_corpus_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            original = (repo / "docs" / "a.md").read_bytes()
-            _, path_dir = fake_mdq(base, mode="mutate-mirror")
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                self.prepare(base, repo, corpus=("docs/missing.md",))
 
-            manifest, details = c_retrieval.prepare(
-                repo, "run-healthy", ["docs/a.md"], _env(base, path_dir)
-            )
-            try:
-                self.assertEqual(manifest, {
-                    "method": "index", "indexAvailable": True,
-                    "indexHealthy": True, "reason": None, "files": 1, "chunks": 1,
-                })
-                self.assertEqual(details["method"], "index")
-                self.assertEqual(details["indexLang"], "ja-jp")
-                mirror = Path(details["indexCwd"])
-                database = Path(details["indexDb"])
-                owner = json.loads(
-                    (mirror.parent / "owner.json").read_text(encoding="utf-8")
-                )
-                self.assertEqual(owner, {
-                    "repo": hashlib.sha256(
-                        os.path.realpath(repo).encode("utf-8")
-                    ).hexdigest(),
-                    "runId": "run-healthy",
-                })
-                self.assertTrue(database.is_file())
-                self.assertEqual((repo / "docs" / "a.md").read_bytes(), original)
-                self.assertEqual((mirror / "docs" / "a.md").read_text(encoding="utf-8"),
-                                 "# Mirror changed\n")
-                mirrored = {
-                    path.relative_to(mirror).as_posix()
-                    for path in mirror.rglob("*")
-                    if path.is_file() and ".mdq" not in path.parts
-                }
-                self.assertEqual(mirrored, {"docs/a.md"})
-                self.assertTrue((mirror / ".mdq" / "usage.jsonl").is_file())
-                self.assertFalse((repo / ".mdq").exists())
-                payload = json.loads(database.read_text(encoding="utf-8"))
-                self.assertEqual([row["path"] for row in payload["files"]], ["docs/a.md"])
-            finally:
-                _store_retrieval(repo, "run-healthy", details)
-                c_retrieval.cleanup(repo, "run-healthy")
-            self.assertFalse(Path(details["indexCwd"]).parent.exists())
-
-    def test_every_mdq_command_receives_the_fixed_index_language(self):
+    def test_corpus_parent_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            _, path_dir = fake_mdq(base)
-            calls = []
-            run_group = c_retrieval.procs.run_group
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            (repo / "linked-docs").symlink_to(repo / "docs", target_is_directory=True)
+            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                self.prepare(base, repo, corpus=("linked-docs/a.md",))
 
-            def capture(argv, **kwargs):
-                calls.append(argv)
-                return run_group(argv, **kwargs)
-
-            with mock.patch.object(
-                c_retrieval.procs, "run_group", side_effect=capture,
-            ):
-                manifest, _details = c_retrieval.prepare(
-                    repo, "run-language", ["docs/a.md"], _env(base, path_dir),
-                )
-
-            self.assertEqual(manifest["method"], "index")
-            self.assertEqual(
-                {argv[1] for argv in calls}, {"index", "stats", "list", "search"},
-            )
-            for argv in calls:
-                with self.subTest(command=argv[1]):
-                    position = argv.index("--lang")
-                    self.assertEqual(argv[position + 1], c_retrieval.INDEX_LANG)
-
-    def test_unavailable_unhealthy_and_timeout_fail_open_to_grep(self):
+    def test_non_regular_corpus_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            for rel in ("docs", "docs/pipe.md"):
+                if rel.endswith("pipe.md"):
+                    os.mkfifo(repo / rel)
+                with self.subTest(path=rel), self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                    self.prepare(base, repo, corpus=(rel,))
 
-            manifest, details = c_retrieval.prepare(
-                repo, "run-missing", ["docs/a.md"], _env(base)
-            )
-            self.assertEqual((manifest["method"], manifest["reason"], details["indexDb"]),
-                             ("grep", "mdq-not-installed", None))
-
-            for mode, run_id, expected in (
-                ("chunks-zero", "run-empty", "index-stats-unhealthy"),
-                ("nonutf8-stats", "run-nonutf8", "index-stats-unhealthy"),
-                ("timeout", "run-timeout", "index-timeout"),
-            ):
-                with self.subTest(mode=mode):
-                    tool_base = base / mode
-                    tool_base.mkdir()
-                    _, path_dir = fake_mdq(tool_base, mode=mode)
-                    environment = _env(base, path_dir)
-                    timeout = 0.1 if mode == "timeout" else c_retrieval.INDEX_TIMEOUT_SEC
-                    grace = 0.1 if mode == "timeout" else c_retrieval.KILL_GRACE_SEC
-                    with mock.patch.object(c_retrieval, "INDEX_TIMEOUT_SEC", timeout), \
-                         mock.patch.object(c_retrieval, "KILL_GRACE_SEC", grace):
-                        manifest, details = c_retrieval.prepare(
-                            repo, run_id, ["docs/a.md"], environment
-                        )
-                    self.assertEqual((manifest["method"], manifest["indexHealthy"], manifest["reason"]),
-                                     ("grep", False, expected))
-                    self.assertEqual(details, {
-                        "method": "grep", "indexDb": None,
-                        "indexCwd": None, "indexLang": None,
-                    })
-                    self.assertFalse((repo / ".mdq").exists())
-                    c_retrieval.cleanup(repo, run_id)
-
-    def test_tmp_candidates_inside_repo_fail_open_to_grep(self):
+    def test_corpus_read_error_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            internal_tmp = repo / "tmp"
-            internal_tmp.mkdir()
-            _, path_dir = fake_mdq(base)
-            environment = _env(internal_tmp, path_dir)
-            realpath = c_retrieval.os.path.realpath
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            with mock.patch.object(c_retrieval.c_io.os, "read", side_effect=OSError("unreadable")):
+                with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                    self.prepare(base, repo)
 
-            def redirect_system_candidates(path):
-                if path in ("/tmp", "/var/tmp"):
-                    return realpath(internal_tmp)
-                return realpath(path)
-
-            with mock.patch.object(
-                c_retrieval.os.path, "realpath", side_effect=redirect_system_candidates,
-            ):
-                manifest, details = c_retrieval.prepare(
-                    repo, "run-no-tmp", ["docs/a.md"], environment,
-                )
-
-            self.assertEqual(
-                (manifest["method"], manifest["indexHealthy"], manifest["reason"]),
-                ("grep", False, "tmp-unavailable"),
-            )
-            self.assertEqual(details, {
-                "method": "grep", "indexDb": None,
-                "indexCwd": None, "indexLang": None,
-            })
-
-    def test_copy_rejects_a_document_replaced_by_a_symlink(self):
+    def test_oversized_corpus_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            external = base / "external.md"
-            external.write_text("outside fixture", encoding="utf-8")
-            _, path_dir = fake_mdq(base)
-            changed = False
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            with (repo / "docs/a.md").open("wb") as stream:
+                stream.truncate(c_retrieval.MAX_DOC_BYTES + 1)
+            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "^corpus-unreadable$"):
+                self.prepare(base, repo)
 
-            def replace(_context):
-                nonlocal changed
-                if not changed:
-                    changed = True
-                    path = repo / "docs" / "a.md"
-                    path.unlink()
-                    path.symlink_to(external)
-
-            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "corpus-unreadable"):
-                c_retrieval.prepare(
-                    repo, "run-symlink", ["docs/a.md"], _env(base, path_dir), hook=replace
-                )
-            self.assertEqual(external.read_text(encoding="utf-8"), "outside fixture")
-            self.assertFalse((base / "docaudit-index-run-symlink").exists())
-
-    def test_deterministic_directory_is_not_reused_and_orphans_are_cleaned(self):
+    def test_legacy_orphan_cleanup_preserves_foreign_and_ownerless_directories(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            _, path_dir = fake_mdq(base)
-            environment = _env(base, path_dir)
-            occupied = base / "docaudit-index-run-collision"
-            occupied.mkdir()
-            marker = occupied / "owned"
-            marker.write_text("keep", encoding="utf-8")
-            with self.assertRaisesRegex(c_retrieval.RetrievalRejected, "tmp-unavailable"):
-                c_retrieval.prepare(
-                    repo, "run-collision", ["docs/a.md"], environment
-                )
-            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
-            c_retrieval.cleanup(repo, "run-collision")
-            self.assertTrue(occupied.exists())
-
-            current = base / "docaudit-index-current"
-            current.mkdir()
-            ownerless = base / "docaudit-index-ownerless"
-            ownerless.mkdir()
-            foreign = base / "docaudit-index-foreign"
-            foreign.mkdir()
-            own_orphan = base / "docaudit-index-own-orphan"
-            own_orphan.mkdir()
-            repo_hash = hashlib.sha256(
-                os.path.realpath(repo).encode("utf-8")
-            ).hexdigest()
-            (foreign / "owner.json").write_text(json.dumps({
-                "repo": hashlib.sha256(b"another-repository").hexdigest(),
-                "runId": "foreign",
-            }), encoding="utf-8")
-            (own_orphan / "owner.json").write_text(json.dumps({
-                "repo": repo_hash,
-                "runId": "own-orphan",
-            }), encoding="utf-8")
-            unrelated = base / "ordinary-directory"
-            unrelated.mkdir()
-            c_retrieval.cleanup_orphans(repo, "current", environment)
-            self.assertTrue(occupied.exists())
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            own = _legacy_index(base, repo, "own")
+            current = _legacy_index(base, repo, "current")
+            foreign = _legacy_index(base, base / "other-repo", "foreign")
+            ownerless = base / "docaudit-index-ownerless"; ownerless.mkdir()
+            c_retrieval.cleanup_orphans(repo, "current", _env(base))
+            self.assertFalse(own.exists())
             self.assertTrue(current.exists())
-            self.assertTrue(ownerless.exists())
             self.assertTrue(foreign.exists())
-            self.assertFalse(own_orphan.exists())
-            self.assertTrue(unrelated.exists())
+            self.assertTrue(ownerless.exists())
 
-    def test_cleanup_uses_recorded_index_path_after_tmpdir_changes(self):
+    def test_orphan_cleanup_preserves_owned_index_inside_repository_tmpdir(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            repo = base / "repo"
-            repo.mkdir()
-            init_repo(repo)
-            original_tmp = base / "first-tmp"
-            changed_tmp = base / "second-tmp"
-            original_tmp.mkdir()
-            changed_tmp.mkdir()
-            _, path_dir = fake_mdq(base)
-            run_id = "run-moved-tmp"
-            manifest, details = c_retrieval.prepare(
-                repo, run_id, ["docs/a.md"], _env(original_tmp, path_dir),
-            )
-            self.assertEqual(manifest["method"], "index")
-            index_base = Path(details["indexDb"]).parent
-            self.assertTrue(index_base.exists())
-            _store_retrieval(repo, run_id, details)
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            index = _legacy_index(repo, repo, "old-run")
+            before = {path.name: path.read_bytes() for path in index.iterdir()}
+            c_retrieval.cleanup_orphans(repo, "current", _env(repo))
+            self.assertTrue(index.is_dir())
+            self.assertEqual(before, {path.name: path.read_bytes() for path in index.iterdir()})
 
-            with mock.patch.dict(os.environ, {"TMPDIR": str(changed_tmp)}):
-                c_retrieval.cleanup(repo, run_id)
-
-            self.assertFalse(index_base.exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_cleanup_uses_recorded_legacy_index_path_after_tmpdir_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); repo = base / "repo"; repo.mkdir(); init_repo(repo)
+            path = _legacy_index(base, repo, "old-run")
+            run = repo / ".claude/state/docaudit/runs/old-run"; run.mkdir(parents=True)
+            (run / "retrieval.json").write_text(json.dumps({"indexDb": str(path / "index.sqlite")}))
+            with mock.patch.dict(os.environ, {"TMPDIR": str(repo)}):
+                c_retrieval.cleanup(repo, "old-run")
+            self.assertFalse(path.exists())

@@ -349,7 +349,7 @@ owns these files:
 | `anchor-candidate.json` | candidate state written after a report publishes regardless of verdict; an accepted `NEEDS_FIX` candidate includes `acceptedBaseline` |
 | `report.rendered.md` | validated report bytes before publication |
 | `metrics.json` | final duration and model-call measurements |
-| `retrieval.json` | document-index locations and language for this run |
+| `retrieval.json` | retrieval record; `indexDb`, `indexCwd`, and `indexLang` are always null for new runs |
 | `tree.before.json` | persisted pre-dispatch worktree snapshot for Workflow runs and for Codex/agy runs with nonempty `worktree.tolerateChangesIn` |
 
 The capability probe is performed once before seal. Its contract version is
@@ -823,9 +823,11 @@ otherwise a failed document gives `backend-failed`.
 
 ## Workflow document adapter
 
-Except for `retrieval.indexDb` and `retrieval.indexCwd`, which are absolute for
-`index` and null for `grep`, every path passed to an external agent, stored in
-a request, or stored in a receipt is repository-relative. The `requestPath`
+Every path passed to an external agent, stored in a new request, or stored in
+a receipt is repository-relative. New Workflow runs always use `grep`, with
+`retrieval.indexDb`, `retrieval.indexCwd`, and `retrieval.indexLang` all null.
+Only records sealed before 1.7.0 can contain method `index`, with absolute
+`indexDb` and `indexCwd` paths. The `requestPath`
 handed to the Workflow, and the request's `judgementPath` and `donePath`,
 include the state-root prefix; document `path`, `changed` entries, and the
 receipt's `accepted[].path` do not. With no impacted documents the adapter
@@ -837,13 +839,14 @@ The engine writes `R/requests/request-<k>.json` before waiting. It has exactly
 these fields:
 
 ```json
-{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","deterministicLinksChecked":true|false,"judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"index|grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
+{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","deterministicLinksChecked":true|false,"judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
 ```
 
 `deterministicLinksChecked` is true only when L-PROJECT is enabled in this run and the document does not match `documentChecks.layerGlobs.links`.
 
-`indexDb` and `indexCwd` are absolute paths when method is `index`; otherwise
-they are null. `indexLang` is `ja-jp` for an index and null for grep. `changed`
+Requests for new runs always use method `grep`; `indexDb`, `indexCwd`, and `indexLang`
+are null. In records sealed before 1.7.0 only, method `index` uses absolute
+`indexDb` and `indexCwd` paths and `indexLang: ja-jp`. `changed`
 contains at most 100 repository-relative paths. After writing the request
 file, the engine appends `model-call-reserved` to the journal, then appends
 `request-issued` with `requestSeq` and the file SHA-256. If the reservation
@@ -933,44 +936,22 @@ closes normally.
 
 ## Workflow document retrieval
 
-Codex runs seal retrieval method `backend-native`. Before sealing a Workflow
-run, the engine finds `mdq` directly from `PATH` under the same executable-file
-rules as backend capability detection. If it is absent, retrieval is `grep`
-with reason `mdq-not-installed`.
-
-When available, the engine chooses the first writable temporary parent outside
-the repository, creates a new mode-0700 directory named
-`docaudit-index-<runId>`, and never reuses an existing directory or symbolic
-link. It copies only the sealed corpus into a repository-relative mirror.
-Source bytes are read through validated file descriptors, mirror files are
-created exclusively, and hard links are forbidden. A document changed into a
-symbolic link before copying makes the run undecided with reason
-`corpus-unreadable` rather than exposing the link target.
-
-With the mirror as its working directory, indexing runs `mdq index --root .
---db ../index.sqlite --lang ja-jp`. Every `mdq` child receives only
-`PATH`, `HOME`, `LANG`, `LC_ALL`, and `TMPDIR` when present, plus
-`PYTHONUTF8=1`; `mdq index` has a 120-second limit; `mdq stats`, `mdq list`,
-and `mdq search` each have a 20-second limit, with process-group cleanup. Health
-requires `mdq stats --db <index database> --lang ja-jp` to report the sealed
-corpus file count and at least one chunk, and the first word of a heading from
-`mdq list --db <index database> --lang ja-jp` to produce at least one `mdq
-search --db <index database> --q <word> --mode grep --top-k 1 --lang ja-jp`
-result, where `<index database>` is the absolute
-`docaudit-index-<runId>/index.sqlite` path (not the mirror-relative
-`../index.sqlite` literal that `index` passes).
-Index or health failure is fail-open: retrieval becomes `grep` with a specific
-reason. The engine's indexing never writes `.mdq/` into the repository.
-If an external mdq invocation writes to the repository's top-level `.mdq/`, the gate ignores it.
-
-The manifest stores `retrieval` with `method`, `indexAvailable`,
-`indexHealthy`, `reason`, `files`, and `chunks`. Metrics store retrieval method
-and health. `retrieval.json` stores `indexDb`, `indexCwd`, and `indexLang`, and
-the request copies those values into its retrieval object. All verifier index
-commands first change to `indexCwd`. If the database or mirror disappears while
-a run is waiting, a verifier falls back to targeted Grep and Read and reports
-`retrievalUsed: grep`; any next-generation request is issued with method
-`grep`.
+Codex runs seal retrieval method `backend-native`. New Workflow runs seal
+retrieval `method: grep`, `indexAvailable: false`, `indexHealthy: false`,
+`reason: mdq-retired`, and `files: null`, `chunks: null`, regardless of PATH.
+The engine starts no indexing or health-check commands and creates no corpus
+mirror. `retrieval.json` and requests retain `indexDb`, `indexCwd`, and
+`indexLang` as null. Method `index` appears only in records sealed before 1.7.0.
+Before preparing retrieval, including when resuming a run interrupted before
+this step, the engine still checks every sealed corpus path without copying its
+contents to a mirror. A missing, unreadable, or non-regular document, a document
+replaced by a symlink, or a symlink in its parent directories closes the run as
+`undecided` with reason `corpus-unreadable`.
+Verifiers use targeted repository searches and Read and
+report `retrievalUsed: grep`. Metrics retain retrieval method and health.
+The gate still ignores the repository's top-level `.mdq/`; it is not an index
+created by this version. Close earlier open runs with the earlier engine before
+upgrading. Cleanup of old external indexes remains available:
 
 Each index directory contains an ownership marker `owner.json` with
 `{"repo": sha256(repo root realpath), "runId": "..."}`. After a run is opened,

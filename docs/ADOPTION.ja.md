@@ -2,7 +2,7 @@
 
 English: [ADOPTION.md](ADOPTION.md)
 
-このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.6.0 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
+このガイドは、リポジトリを「監査なし」から「変更のたびに文書との整合を確認する」状態まで導きます。docaudit 1.7.0 が [README](../README.md) の手順で install 済みであることを前提とし、設定の仕様は [CONFIG-1.0.0.md](CONFIG-1.0.0.md)（英語）、コピーして使えるプロンプトは [PROMPTS.ja.md](PROMPTS.ja.md) にあります。skill の指示 file（`SKILL.md`）は日本語です。
 
 このガイドのコマンドは skills-dir install の engine path `~/.claude/skills/docaudit/skills/audit/engine` を使います。marketplace 経由で install した場合は、README の install 節にある engine path に読み替えてください。
 
@@ -287,7 +287,7 @@ skill は前の session から残った run を回復しません。手作業か
 | `undecided tmp-unavailable` | Codex・agy で検証する文書のすべてで private な一時ディレクトリを作れず、試行が始まらなかった。または `projectChecks` が自分の private な一時ディレクトリを作れなかった | 一時ディレクトリに書き込めるか確かめて再実行する。前者の場合、文書に `failure`・`model-call` 記録はない |
 | `undecided external-incomplete` | Claude Code の agent で検証した文書が 3 回目の request の後も未解決 | request と response の記録を確認し、外部の処理を直して再実行する |
 | `undecided impact-limit` | 影響文書が `impact.maxImpactedDocs` を超えた | `--full` で実行するか、`impact.maxImpactedDocs` を上げるか、文書を追加する経路（`impact.map`・`impact.ssotSources`・`impact.heuristics`・`changes.regressionRecheck`）を絞る |
-| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）（corpus の文書と `diffGlobs` に合う file は 8 MiB を超えると読めないものとして扱う）、または Claude Code の agent で検証用 mirror に corpus の文書を写せなかった | file を読めるようにして 8 MiB 以下にするか、8 MiB を超える場合は `docGlobs`・`excludeDocGlobs`・`diffGlobs` で読ませない・corpus 外の file で、その場所が Git に無視され追跡 file を含まないなら、代わりにその場所を `worktree.tolerateChangesIn` で許してもよい（条件は上の説明のとおり）・再実行する |
+| `undecided corpus-unreadable` | 新しい run の作業木の digest 作成時に corpus 外を含む通常 file を読めなかった（`worktree.tolerateChangesIn` で許した場所を除く）（corpus の文書と `diffGlobs` に合う file は 8 MiB を超えると読めないものとして扱う）、または Workflow の探索準備時（この手順の完了前に中断した run の再開を含む）に封印済みの文書が消失・読み取り不能・通常 file 以外・リンクへの差し替え・親フォルダのリンク化のいずれかになった | 文書を読める通常 file に戻し、親フォルダもリンクでない状態に戻す・file を 8 MiB 以下にするか、8 MiB を超える場合は `docGlobs`・`excludeDocGlobs`・`diffGlobs` で読ませない・corpus 外の file で、その場所が Git に無視され追跡 file を含まないなら、代わりにその場所を `worktree.tolerateChangesIn` で許してもよい（条件は上の説明のとおり）・再実行する |
 | `undecided sandbox-unavailable` | Darwin 以外で `standard`・`extended` に空でない `projectChecks` を設定した・`/usr/bin/sandbox-exec` がない・`/usr/bin/true` の事前確認を起動できないか、0 以外で終わるか、20 秒で時間切れになる | Linux で `standard`・`extended` を使う場合は `projectChecks` を空にする（`focused` では動かない）・macOS では `sandbox-exec` または事前確認の実行環境を直して再実行する |
 | `undecided workflow-adapter-unavailable` | 文書を Claude Code の agent 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
 | `undecided codex-unavailable` | 文書を agy 経由で検証する `extended` で、使える Codex がない | Codex を使えるようにする |
@@ -305,3 +305,7 @@ skill は前の session から残った run を回復しません。手作業か
 - **`mutex-timeout`。** 別の engine process が state の操作（例: `migrate`）をしています。終了後にやり直し、`run-open.json` に開いたままの run があれば再開または放棄してください。**`run-in-progress`。** 別の engine process が run を保持しています。終了を待つか、どの process も保持しなくなってから `run-open.json` にある run を再開または放棄してください。
 - **install 後に skill が一覧に出ない。** 新しい Claude Code session を開くか `/reload-plugins` を実行し、`claude plugin list` で確認してください。
 - **想定外の file がリポジトリに書かれた。** engine が書くのは report と `.claude/state/docaudit/` 配下の state で、repo 直下の `.mdq/` は作業木の走査から外します。別のツールが run 中に書いても、列挙した場所の中にあり、gate 時点で Git が無視し、封印した corpus と snapshot の外にある変化だけを大目に見ます。それ以外の変化は、新しく作った親ディレクトリも含めて `REFUSED worktree-modified` です。回避策は、対象となる場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移すことです。entry 数か byte 数の上限を超えた場合は、代わりに `undecided worktree-too-large` になります。
+
+## Workflow の文書探索：索引の廃止
+
+Workflow の文書探索は対象を絞った検索と Read を使います。mdq を必要とせず文書の索引を作りません。記録する reason は `mdq-retired` です。新しい Workflow run の方式は常に `grep` で、`indexDb`・`indexCwd`・`indexLang` はすべて null です。`index` の方式は 1.7.0 より前に封印された記録にだけ出ます。文書の複製は作りませんが、探索準備時には封印済みの各パスを検査し、文書や親フォルダがリンクに変わっていれば `undecided` / `corpus-unreadable` で閉じます。この検査は準備の完了前に中断した run の再開時にも行います。更新前に、旧 engine で開いた run を完了または放棄してください。

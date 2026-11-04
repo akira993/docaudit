@@ -52,7 +52,7 @@ class WorkflowScriptTests(unittest.TestCase):
             self.assertIn("indexDb", call["prompt"])
             self.assertIn('"indexLang":"ja-jp"', call["prompt"])
             self.assertIn('"$PWD/', call["prompt"])
-            self.assertIn("Run every mdq command from the mirror directory in retrieval.indexCwd, never from the repository", call["prompt"])
+            self.assertIn("Use targeted repository searches and Read; set retrievalUsed to grep", call["prompt"])
         self.assertIn('provenance: ["mapped"]', first["prompt"])
         self.assertIn('provenance: ["self"]', second["prompt"])
         self.assertIn("request-1.done", closer["prompt"])
@@ -99,11 +99,11 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertNotIn("Write", tools)
         self.assertIn("retrievalUsed", agent)
         self.assertIn("judgementPath", agent)
-        self.assertIn('cd "<indexCwd>" && mdq search --db "<indexDb>" --lang "<indexLang>"', agent)
-        self.assertIn('cd "<indexCwd>" && mdq get --db "<indexDb>" --lang "<indexLang>"', agent)
-        self.assertNotRegex(agent, r'(?<!cd "<indexCwd>" && )mdq (search|get) ')
-        self.assertIn('`.mdq/usage.jsonl` under its working directory', agent)
-        self.assertIn('Never run `mdq` with the\nrepository as its working directory', agent)
+        self.assertNotRegex(agent, r"mdq (search|get|index)")
+        self.assertIn("set `retrievalUsed` to `grep`", agent)
+        self.assertIn("Read only the repository", agent)
+        self.assertNotIn("retrieval.indexCwd", agent)
+        self.assertNotIn("Run every mdq command", source)
         self.assertIn('cat > "$PWD/', agent)
         self.assertIn("<<'EOF'", agent)
         self.assertGreaterEqual(source.count('"$PWD/'), 2)
@@ -125,8 +125,20 @@ class WorkflowScriptTests(unittest.TestCase):
     def test_verifier_searches_with_read_only_bash_commands(self):
         agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
         source = (self.root / "workflows" / "docaudit-verify.js").read_text(encoding="utf-8")
-        for text in ("find . -name", "grep -rn", "git ls-files --error-unmatch -- <path>", "git check-ignore -q -- <path>"):
-            self.assertIn(text, agent)
+        normalized_agent = " ".join(agent.replace("`", "").split())
+        for text in (
+            "find . -name '<name>'", "git grep -nF -- '<text>'",
+            "git ls-files --error-unmatch -- '<path>'", "git check-ignore -q -- '<path>'",
+            ".env-family files", ".envrc.local", "If the environment blocks", "read-only search it recommends",
+            "single-quote terms copied from documents", "contains no single quote",
+            "command substitution", "$(...)", "backticks",
+            ";, &&, ||, |, find -delete",
+            "before each single-quoted search term", "Treat its hits as candidates",
+            "before Read for files found by find or Glob",
+            "Searches that omit hidden directories cannot prove absence there",
+            "count the unverified claim in U",
+        ):
+            self.assertIn(text, normalized_agent)
             self.assertIn(text, source)
         self.assertIn("from the repository root", agent)
         self.assertIn("Grep and Glob are available", agent)

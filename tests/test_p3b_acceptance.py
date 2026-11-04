@@ -148,7 +148,7 @@ class P3bAcceptanceTests(unittest.TestCase):
         c_io.clear_write_guard()
 
     @acceptance("T-SCOPE-2", targets=1)
-    def test_workflow_corpus_mirror_and_impact_exclude_filtered_documents(self):
+    def test_workflow_corpus_and_impact_exclude_filtered_documents_without_mirror(self):
         with tempfile.TemporaryDirectory() as outer:
             base = Path(outer)
             repo = base / "repo"
@@ -186,15 +186,10 @@ class P3bAcceptanceTests(unittest.TestCase):
             self.assertEqual({row["path"] for row in scope["impacted"]}, expected)
 
             retrieval = _json(_run_dir(repo, run_id) / "retrieval.json")
-            self.assertEqual(retrieval["method"], "index")
-            mirror = Path(retrieval["indexCwd"])
-            mirrored = {
-                path.relative_to(mirror).as_posix()
-                for path in mirror.rglob("*")
-                if path.is_file() and ".mdq" not in path.relative_to(mirror).parts
-            }
-            self.assertEqual(mirrored, expected)
-            self.assertFalse({"docs/ignored.md", "docs/excluded.md"} & mirrored)
+            self.assertEqual(retrieval["method"], "grep")
+            self.assertEqual(retrieval["reason"], "mdq-retired")
+            self.assertIsNone(retrieval["indexCwd"])
+            self.assertEqual({row["path"] for row in _request(repo, run_id, 1)["documents"]}, expected)
             c_run.abandon(repo, run_id)
 
     @acceptance("R-WF-1", targets=3)
@@ -279,6 +274,13 @@ class P3bAcceptanceTests(unittest.TestCase):
             environment = _workflow_env(base, path_dir)
             started = _audit(repo, environment)
             run_id = started["runId"]
+            # Model an unrelated old tool's log write without relying on a
+            # database that new runs no longer create.
+            mdq.write_text(
+                "#!" + sys.executable + "\nimport json,pathlib\n"
+                "p=pathlib.Path('.mdq/usage.jsonl');p.parent.mkdir(exist_ok=True)\n"
+                "p.write_text(json.dumps({'command':'search'})+'\\n')\n"
+            )
             simulate_external(repo, run_id, behaviour="stray-mdq", mdq=mdq)
             usage = repo / ".mdq" / "usage.jsonl"
             self.assertTrue(usage.is_file())
@@ -541,10 +543,10 @@ class P3bAcceptanceTests(unittest.TestCase):
             )
 
     @acceptance("R-DOC-1", targets=3)
-    def test_retrieval_falls_back_for_unhealthy_missing_and_deleted_indexes(self):
+    def test_retrieval_stays_grep_with_unhealthy_missing_tools_and_on_retry(self):
         for mode, expected_reason in (
-            ("chunks-zero", "index-stats-unhealthy"),
-            (None, "mdq-not-installed"),
+            ("chunks-zero", "mdq-retired"),
+            (None, "mdq-retired"),
         ):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as outer:
                 base = Path(outer); repo = base / "repo"; repo.mkdir(); init_repo(repo)
@@ -568,9 +570,9 @@ class P3bAcceptanceTests(unittest.TestCase):
             _, path_dir = fake_mdq(base); environment = _workflow_env(base, path_dir)
             started = _audit(repo, environment); run_id = started["runId"]
             retrieval = _json(_run_dir(repo, run_id) / "retrieval.json")
-            self.assertEqual(_request(repo, run_id, 1)["retrieval"]["method"], "index")
+            self.assertEqual(_request(repo, run_id, 1)["retrieval"]["method"], "grep")
             simulate_external(repo, run_id, behaviour="one-missing")
-            Path(retrieval["indexDb"]).unlink()
+            self.assertIsNone(retrieval["indexDb"])
             retry = _resume(repo, run_id, environment)
             self.assertEqual((retry["nextAction"], retry["requestSeq"]),
                              ("invoke-workflow", 2))

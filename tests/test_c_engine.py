@@ -1112,91 +1112,68 @@ class EngineRecoveryTests(unittest.TestCase):
             _assert_success(self, following)
             self.assertNotEqual(following["runId"], run_id)
 
-    def test_retrieval_copy_rejection_closes_run_and_allows_a_new_audit(self):
+    def _assert_retrieval_check_rejection(self, change):
         for entrypoint in ("audit", "resume"):
             with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
-                root = base / "repo"
-                root.mkdir()
-                init_repo(root)
-                outside = base / "outside.md"
-                outside.write_text("outside fixture\n", encoding="utf-8")
-                _, path_dir = fake_mdq(base)
-                environment = {
-                    "PATH": f"{path_dir}:/usr/bin:/bin",
-                    "HOME": str(base / "home"),
-                    "TMPDIR": str(base),
-                    "CLAUDECODE": "1",
-                    "LANG": "C",
-                    "LC_ALL": "C",
-                }
-                replaced = False
+                root = base / "repo"; root.mkdir(); init_repo(root)
+                outside = base / "outside.md"; outside.write_text("outside fixture\n")
+                document = root / "docs/a.md"
+                saved = base / "sealed-a.md"
+                before = _anchor_bytes(root)
 
-                def replace_document(_context):
-                    nonlocal replaced
-                    if replaced:
+                def alter_document(context):
+                    if context["path"] != "docs/a.md":
                         return
-                    replaced = True
-                    document = root / "docs" / "a.md"
-                    document.unlink()
-                    document.symlink_to(outside)
+                    document.rename(saved)
+                    if change == "symlink":
+                        document.symlink_to(outside)
 
-                injected = _deps(hooks={"before-retrieval-copy": replace_document})
+                injected = _deps(hooks={"before-retrieval-check": alter_document})
                 injected.capability_resolver = lambda directive, env: _workflow_available()
-                with mock.patch.dict(os.environ, environment, clear=True):
-                    if entrypoint == "audit":
-                        result = _engine().run(
-                            root, full=True, profile="standard", deps=injected,
-                        )
-                    else:
-                        stopped = _deps(hooks={
-                            "capability-detected": lambda: (_ for _ in ()).throw(
-                                InjectedStop("before retrieval")
-                            ),
-                        })
-                        stopped.capability_resolver = (
-                            lambda directive, env: _workflow_available()
-                        )
-                        with self.assertRaises(InjectedStop):
-                            _engine().run(
-                                root, full=True, profile="standard", deps=stopped,
-                            )
-                        result = _engine().resume(root, _run_id(root), deps=injected)
-
+                if entrypoint == "audit":
+                    result = _engine().run(root, full=True, profile="standard", deps=injected)
+                else:
+                    stopped = _deps(hooks={"capability-detected": lambda: (_ for _ in ()).throw(InjectedStop("before retrieval"))})
+                    stopped.capability_resolver = lambda directive, env: _workflow_available()
+                    with self.assertRaises(InjectedStop):
+                        _engine().run(root, full=True, profile="standard", deps=stopped)
+                    result = _engine().resume(root, _run_id(root), deps=injected)
                 run_id = result["runId"]
                 self.assertEqual(
-                    (result["exitCode"], result["nextAction"], result["outcome"],
-                     result["reason"]),
+                    (result["exitCode"], result["nextAction"], result["outcome"], result.get("reason")),
                     (0, "done", "undecided", "corpus-unreadable"),
                 )
-                outcomes = [
-                    row for row in _history(root)
-                    if row["kind"] == "outcome" and row["runId"] == run_id
-                ]
+                outcomes = [row for row in _history(root)
+                            if row["kind"] == "outcome" and row["runId"] == run_id]
                 self.assertEqual(len(outcomes), 1)
                 self.assertEqual(
                     (outcomes[0]["data"]["outcome"], outcomes[0]["data"]["reason"]),
                     ("undecided", "corpus-unreadable"),
                 )
                 self.assertEqual(_json(_state(root) / "run-open.json")["state"], "closed")
-                self.assertEqual(outside.read_text(encoding="utf-8"), "outside fixture\n")
-
-                document = root / "docs" / "a.md"
-                document.unlink()
-                document.write_text("# A\n", encoding="utf-8")
-                following = _engine().run(
-                    root, full=True, profile="standard", deps=_deps(),
-                )
+                self.assertEqual(_anchor_bytes(root), before)
+                self.assertEqual(outside.read_text(), "outside fixture\n")
+                if change == "symlink":
+                    document.rename(base / "rejected-link.md")
+                saved.rename(document)
+                following = _engine().run(root, full=True, profile="standard", deps=_deps())
                 _assert_success(self, following)
                 self.assertNotEqual(following["runId"], run_id)
 
-    def test_non_utf8_retrieval_health_output_fails_open_and_run_completes(self):
+    def test_missing_corpus_check_closes_audit_or_resume_and_allows_new_run(self):
+        self._assert_retrieval_check_rejection("missing")
+
+    def test_symlink_corpus_check_closes_audit_or_resume_and_allows_new_run(self):
+        self._assert_retrieval_check_rejection("symlink")
+
+    def test_retired_retrieval_records_grep_and_run_completes(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             root = base / "repo"
             root.mkdir()
             init_repo(root)
-            _, path_dir = fake_mdq(base, mode="nonutf8-stats")
+            _, path_dir = fake_mdq(base)
             environment = {
                 "PATH": f"{path_dir}:/usr/bin:/bin",
                 "HOME": str(base / "home"),
@@ -1217,53 +1194,24 @@ class EngineRecoveryTests(unittest.TestCase):
             retrieval = _json(_run_dir(root, result["runId"]) / "retrieval.json")
             self.assertEqual(
                 (retrieval["method"], retrieval["indexHealthy"], retrieval["reason"]),
-                ("grep", False, "index-stats-unhealthy"),
+                ("grep", False, "mdq-retired"),
             )
 
-    def test_temporary_retrieval_write_failure_fails_open_and_run_completes(self):
-        from skills.audit.engine import c_retrieval
-
+    def test_temporary_retrieval_storage_is_unused_and_run_completes(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            root = base / "repo"
-            root.mkdir()
-            init_repo(root)
-            _, path_dir = fake_mdq(base)
-            environment = {
-                "PATH": f"{path_dir}:/usr/bin:/bin",
-                "HOME": str(base / "home"),
-                "TMPDIR": str(base),
-                "CLAUDECODE": "1",
-                "LANG": "C",
-                "LC_ALL": "C",
-            }
+            root = Path(directory); init_repo(root)
             injected = _deps()
             injected.capability_resolver = lambda directive, env: _workflow_available()
-            real_exclusive_file = c_retrieval.exclusive_file
-
-            def fail_mirror_write(path, data=b""):
-                if path.endswith(os.path.join("corpus", "docs", "a.md")):
-                    raise OSError(errno.ENOSPC, "fixture storage full")
-                return real_exclusive_file(path, data)
-
-            with mock.patch.dict(os.environ, environment, clear=True), \
-                 mock.patch.object(
-                     c_retrieval, "exclusive_file", side_effect=fail_mirror_write,
-                 ):
-                result = _engine().run(
-                    root, full=True, profile="standard", deps=injected,
-                )
-
+            with mock.patch("skills.audit.engine.c_retrieval.temp_parent", side_effect=AssertionError("no temporary index")):
+                # cleanup_orphans is independent legacy-state maintenance.
+                with mock.patch("skills.audit.engine.c_retrieval.cleanup_orphans"):
+                    result = _engine().run(root, full=True, profile="standard", deps=injected)
             _assert_success(self, result)
             retrieval = _json(_run_dir(root, result["runId"]) / "retrieval.json")
-            self.assertEqual(
-                (retrieval["method"], retrieval["indexAvailable"],
-                 retrieval["indexHealthy"], retrieval["reason"]),
-                ("grep", True, False, "index-unavailable"),
-            )
-            self.assertFalse((base / ("docaudit-index-" + result["runId"])).exists())
+            self.assertEqual((retrieval["method"], retrieval["indexAvailable"], retrieval["reason"]),
+                             ("grep", False, "mdq-retired"))
 
-    def test_retrieval_record_write_failure_cleans_index_and_propagates(self):
+    def test_retrieval_record_write_failure_aborts_with_oserror(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             root = base / "repo"
@@ -1298,9 +1246,6 @@ class EngineRecoveryTests(unittest.TestCase):
             self.assertEqual(
                 (result["exitCode"], result["nextAction"], result["reason"]),
                 (4, "abort", "OSError"),
-            )
-            self.assertFalse(
-                (base / ("docaudit-index-" + result["runId"])).exists()
             )
 
     def test_report_failure_interruption_keeps_original_undecided_outcome(self):

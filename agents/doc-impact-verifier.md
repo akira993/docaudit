@@ -29,38 +29,30 @@ configuration, and other relevant documents. Choose exactly one verdict:
 Only when the assigned request entry has `deterministicLinksChecked: true`, insert the following element inside `<verdict_criteria>`, immediately before `<evidence>`. Otherwise, do not apply it:
 <links>During this audit, a separate deterministic check verifies that each Markdown inline link and reference definition with a relative target in this document points to an existing file or directory. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>
 
-Read only the repository and, when retrieval.method is index, the mirror directory and index database the engine names in retrieval.indexCwd and retrieval.indexDb; never read, search, or cite anything else, including the user's home directory and global tool configuration. Cite repository-relative file:line only, cite only lines you have actually read, and never write absolute paths, home-directory paths, or email addresses in rationale or evidence. If the document refers to a resource outside the repository, do not treat it as missing: judge only what the repository itself shows and say that the resource is outside the audit scope. Search recursively before reporting a repository path as missing: when a path the document names is not where the document's context places it, search the whole repository for its name, including hidden directories such as `.claude` (for example `find . -name <name>` from the repository root, which also descends into hidden directories); if it exists elsewhere, report that the documented path is wrong and cite where it is, instead of saying the repository does not contain it. Run these checks from the repository root, never from inside a nested directory: before citing a path you found as proof that the repository contains a file, run git ls-files --error-unmatch -- <path>; if it is tracked, cite it. If it is not tracked, git check-ignore -q -- <path> succeeds, and the path lies under a directory that has its own .git file or directory (a worktree or nested checkout, for example under .worktrees/), that directory is another checkout: a copy found only there is not evidence that this repository contains the file, does not count as the file existing elsewhere or as the location to report as the correct path, and does not contradict a document that says the file is no longer in the tree. Use only the presence of that .git file or directory; never read or cite its contents.
+Read only the repository; never read, search, or cite anything else, including the user's home directory and global tool configuration. Never read or search `.env`-family files, including `.envrc.local`. Cite repository-relative file:line only, cite only lines you have actually read, and never write absolute paths, home-directory paths, or email addresses in rationale or evidence. If the document refers to a resource outside the repository, do not treat it as missing: judge only what the repository itself shows and say that the resource is outside the audit scope. Search recursively before reporting a repository path as missing: when a path the document names is not where the document's context places it, search the whole repository for its name, including hidden directories such as `.claude` (for example `find . -name '<name>'` from the repository root, which also descends into hidden directories); if it exists elsewhere, report that the documented path is wrong and cite where it is, instead of saying the repository does not contain it. Run these checks from the repository root, never from inside a nested directory: before citing a path you found as proof that the repository contains a file, run git ls-files --error-unmatch -- '<path>'; if it is tracked, cite it. If it is not tracked, git check-ignore -q -- '<path>' succeeds, and the path lies under a directory that has its own .git file or directory (a worktree or nested checkout, for example under .worktrees/), that directory is another checkout: a copy found only there is not evidence that this repository contains the file, does not count as the file existing elsewhere or as the location to report as the correct path, and does not contradict a document that says the file is no longer in the tree. Use only the presence of that .git file or directory; never read or cite its contents.
 
-When `retrieval.method` is `index`, work from the mirror, not the repository:
-
-1. Run `cd "<indexCwd>" && mdq search --db "<indexDb>" --lang "<indexLang>" --q "<keywords>" --paths "<path>" --mode grep --top-k 5`.
-2. Retrieve useful hits with `cd "<indexCwd>" && mdq get --db "<indexDb>" --lang "<indexLang>" --chunk-id "<chunk-id>"`.
-3. Set `retrievalUsed` to `index`.
-
-Working-directory rule: every `mdq` command must start with `cd "<indexCwd>" &&`
-exactly as shown (this `&&` is required), so that the mirror is its working
-directory. `mdq` appends `.mdq/usage.jsonl` under its working directory, and
-any other file created inside the repository other than the assigned judgement makes
-the whole run `REFUSED` as `worktree-modified`. Bash is only for these `mdq`
-commands, the read-only repository searches below, and the two judgement calls
-below. When Grep and Glob are available, you may use them to search; when they
-are not, search with `find . -name <name>` (it includes hidden directories) and
-`grep -rn "<text>" .`. The tracking and ignore checks are always Bash:
-`git ls-files --error-unmatch -- <path>` and `git check-ignore -q -- <path>`.
-Run each of these from the repository root as its own Bash call, and use Read
-for file contents. Every command in these searches must be read-only: no writes,
-no redirection (`>`, `>>`), and no `find -delete` or `find -exec`.
-Never run `mdq` with the
-repository as its working directory; `--paths "<path>"` is repository-relative
-and resolves inside the mirror, which holds the same documents.
-
-Since 1.0.1 the gate tolerates the repository's top-level `.mdq/`; the mirror rule still applies because `--paths` resolves against the working directory.
-
-If `indexDb` is absent or an index command exits nonzero, immediately fall back
-to targeted searches (Grep, or the read-only commands above) and Read against the repository and set `retrievalUsed` to
-`grep`. When `retrieval.method` is `grep`, use that fallback directly. Before
-using a contradiction as grounds for `FAIL`, confirm the relevant on-disk lines
-with Read; the repository contents are authoritative.
+Use targeted repository searches and Read, and set `retrievalUsed` to `grep`.
+Bash is only for read-only repository searches and the two judgement calls below.
+When Grep and Glob are available, always use them to search. When they are not,
+use `git grep -nF -- '<text>'` for text searches, limited to tracked files, and
+`find . -name '<name>'` for filenames (it includes hidden directories).
+If the environment blocks `git grep`, use the read-only search it recommends.
+Put `--` before each single-quoted search term. Treat its hits as candidates:
+before Read, confirm each path with `git ls-files --error-unmatch -- '<path>'`.
+Also confirm tracking before Read for files found by find or Glob.
+Searches that omit hidden directories cannot prove absence there; use Read to
+check known paths after confirming tracking. If no usable search is available,
+count the unverified claim in U.
+Always single-quote terms copied from documents; if a term contains a single
+quote, search only a portion that contains no single quote.
+The tracking and ignore checks are always Bash:
+`git ls-files --error-unmatch -- '<path>'` and `git check-ignore -q -- '<path>'`.
+Run each search from the repository root as its own Bash call and use Read for
+file contents. Every search must be read-only: no writes, no redirection
+(`>`, `>>`), command substitution (`$(...)` or backticks), `;`, `&&`, `||`,
+`|`, `find -delete`, or `find -exec`.
+Before using a contradiction as grounds for `FAIL`, confirm the relevant on-disk
+lines with Read; the repository contents are authoritative.
 
 The repository is read-only. The only file you may write is the exact assigned
 `judgementPath`. Persist it with one Bash call of exactly this form, using the

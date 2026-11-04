@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,6 +41,9 @@ def init_repo(root: Path, *, layers=("L-SCOPE", "L-DOC", "L-PROJECT")) -> dict:
     """Create a minimal committed project without borrowing real project data."""
     procs.run_subprocess(
         ["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL
+    )
+    procs.run_subprocess(
+        ["git", "config", "core.excludesFile", os.devnull], cwd=root, check=True
     )
     (root / ".claude").mkdir()
     (root / "docs").mkdir()
@@ -266,7 +270,7 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
     binary = path_dir / "mdq"
     binary.write_text(
         f"#!{sys.executable}\n"
-        "import json, pathlib, sys, time\n"
+        "import json, pathlib, sys\n"
         f"MODE = {mode!r}\n"
         "args = sys.argv[1:]\n"
         "command = args[0] if args else ''\n"
@@ -280,7 +284,6 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
         "if command in ('index', 'stats', 'list', 'search') and option('--lang') != 'ja-jp':\n"
         "    raise SystemExit(3)\n"
         "if command == 'index':\n"
-        "    if MODE == 'timeout': time.sleep(60)\n"
         "    root = pathlib.Path(option('--root', '.')).resolve()\n"
         "    files = []\n"
         "    for path in sorted(root.rglob('*.md')):\n"
@@ -294,11 +297,8 @@ def fake_mdq(root: Path, *, mode: str = "healthy"):
         "    usage = pathlib.Path.cwd() / '.mdq' / 'usage.jsonl'\n"
         "    usage.parent.mkdir(parents=True, exist_ok=True)\n"
         "    usage.write_text(json.dumps({'command': 'index'}) + '\\n', encoding='utf-8')\n"
-        "    if MODE == 'mutate-mirror' and files:\n"
-        "        (root / files[0]['path']).write_text('# Mirror changed\\n', encoding='utf-8')\n"
         "elif command == 'stats':\n"
         "    value = json.loads(database().read_text(encoding='utf-8'))\n"
-        "    if MODE == 'nonutf8-stats': sys.stdout.buffer.write(b'\\xff'); raise SystemExit(0)\n"
         "    print(json.dumps({'files': len(value['files']), 'chunks': value['chunks']}))\n"
         "elif command == 'list':\n"
         "    value = json.loads(database().read_text(encoding='utf-8'))\n"
