@@ -3,7 +3,7 @@ import json
 import os
 
 from .version import version
-from .profiles import PROFILE_TABLE
+from .profiles import profile_names
 from .c_io import check_platform_support
 
 
@@ -12,16 +12,17 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="store_true")
     sub = p.add_subparsers(dest="command")
     audit = sub.add_parser("audit")
+    audit.add_argument("profile_name", nargs="?", choices=profile_names(), metavar="profile")
     audit.add_argument("--full", action="store_true")
     audit.add_argument("--accept-baseline", action="store_true")
-    audit.add_argument("--profile", choices=tuple(row["name"] for row in PROFILE_TABLE))
+    audit.add_argument("--profile", choices=profile_names())
     audit.add_argument("--ask-backend", action="store_true")
     audit.add_argument("--backend")
     audit.add_argument("--fast", action="store_true")
     audit.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     scope = sub.add_parser("scope")
     scope.add_argument("--full", action="store_true")
-    scope.add_argument("--profile", choices=tuple(row["name"] for row in PROFILE_TABLE))
+    scope.add_argument("--profile", choices=profile_names())
     scope.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     resume = sub.add_parser("resume")
     resume.add_argument("run_id")
@@ -40,7 +41,12 @@ def main(argv=None) -> int:
         reason = getattr(exc, "reason", "io-unsupported-platform")
         print(json.dumps({"nextAction": "abort", "runId": None, "outcome": None, "reason": reason}, sort_keys=True, separators=(",", ":")))
         return 3
-    args = parser().parse_args(argv)
+    p = parser()
+    args = p.parse_args(argv)
+    if args.command == "audit" and args.profile_name is not None:
+        if args.profile is not None and args.profile != args.profile_name:
+            p.error("positional profile and --profile must match")
+        args.profile = args.profile_name
     if args.version:
         print(version())
         return 0

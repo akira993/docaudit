@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Run the documentation audit engine with a selected profile.
-argument-hint: "[--full] [--accept-baseline] [--profile focused|standard|extended] [--backend agy|codex|claude] [--fast]"
+argument-hint: "[focused|standard|extended] [--full] [--accept-baseline] [--profile focused|standard|extended] [--backend agy|codex|claude] [--fast]"
 ---
 `python3 -B "$CLAUDE_SKILL_DIR/engine" audit --ask-backend $ARGUMENTS` を実行する。
 stdout の最終行にある `nextAction` JSON だけを次の制御に使う。起動し直した場合も同じ。
