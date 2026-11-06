@@ -8,7 +8,7 @@ A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it
 
 ## Requirements
 
-- macOS for the write guard used by `audit`, `resume` without `--abandon`, and `migrate` without `--dry-run`: it requires `fcntl.F_GETPATH`; without it, these paths stop with `io-unsupported-platform`. Linux is expected to stop for this reason on these paths; `scope`, `migrate --dry-run`, and `resume --abandon` do not use the write guard and do not stop for this reason (based on code tracing; not run on a Linux machine).
+- macOS for the write guard used by `audit`, `resume` without `--abandon`, and `migrate` when it writes the converted configuration: it requires `fcntl.F_GETPATH`; without it, these paths stop with `io-unsupported-platform`. Linux is expected to stop for this reason on these paths; `scope`, `migrate --dry-run`, and `resume --abandon` do not use the write guard and do not stop for this reason (based on code tracing; not run on a Linux machine).
 - git. Claude Code is needed only to run docaudit as its plugin skill; outside Claude Code the engine runs as a command and needs the Codex CLI or the agy CLI (see below).
 - Python 3.12 or newer. The engine uses only the standard library.
 - Optional for manual document searches: mdrg (repository coming soon). It searches Markdown without building an index. The audit engine uses targeted text searches and Read and does not invoke mdrg.
