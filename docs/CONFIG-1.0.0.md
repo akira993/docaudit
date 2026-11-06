@@ -1042,8 +1042,10 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
   `orphan: skipped`.
 
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
-documents from that check. Links inside code fences or inline code are ignored,
-and an optional Markdown link title is not part of the target. Link targets may
+documents from that check. Links inside code fences, or between two backticks on
+the same line, are ignored; a code span delimited by two or more backticks, or
+one that spans lines, is not recognized, so links in it may be checked. An
+optional Markdown link title is not part of the target. Link targets may
 be angle-bracketed. Destinations and titles support CommonMark 0.31.2 forms
 (balanced parentheses with up to 32 nested pairs, backslash-escaped parentheses,
 spaces in `<...>`, and double-quoted, single-quoted, or parenthesized titles).
