@@ -348,7 +348,7 @@ owns these files:
 | `verdict.json` | exclusively published gate result |
 | `anchor-candidate.json` | candidate state written after a report publishes regardless of verdict; an accepted `NEEDS_FIX` candidate includes `acceptedBaseline` |
 | `report.rendered.md` | validated report bytes before publication |
-| `metrics.json` | final duration and model-call measurements |
+| `metrics.json` | render-time duration and model-call measurements for published reports, otherwise record-time measurements; also includes `postPublishMs` |
 | `retrieval.json` | retrieval record; `indexDb`, `indexCwd`, and `indexLang` are always null for new runs |
 | `tree.before.json` | persisted pre-dispatch worktree snapshot for Workflow runs and for Codex/agy runs with nonempty `worktree.tolerateChangesIn` |
 
@@ -385,7 +385,8 @@ Auxiliary kinds are `resumed`, `interrupted`, `tmp-recovered`, `awaiting`,
 `model-call-limit`, and `model-call-reserved`. The request events define
 the generation state of a Workflow request but do not complete an engine layer.
 A `layer-done` event records `layerId`, `evidenceSeq`, and the evidence SHA-256.
-`rendered` records the report SHA-256; `write-begin` records the report path plus
+`rendered` records the report SHA-256 and `data.metrics`, reused on resume after
+rendering; `write-begin` records the report path plus
 the temporary file's device and inode; `reported` records the publication
 receipt. `run-options` records `mode`, `requestedProfile`, `acceptBaseline`, and
 `backendSelection` (`{backend, fast}`, as in `capability.json`); a resume that
@@ -591,7 +592,7 @@ overwrite a report. A `tmp-conflict` is recorded as undecided
 
 ## CLI result and exit status
 
-`python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` previews the scope using the same configuration, anchor, history, and profile selection as `audit`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`. Success prints one JSON object in the `scope.json` structure and exits 0; calculation or configuration refusal prints the pre-run refusal JSON (`nextAction: abort`, null `runId` and `outcome`, and `reason`) and exits 3. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check.
+`python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` previews the scope using the same configuration, anchor, history, and profile selection as `audit`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`, but no positional profile. Success prints one JSON object in the `scope.json` structure and exits 0; calculation or configuration refusal prints the pre-run refusal JSON (`nextAction: abort`, null `runId` and `outcome`, and `reason`) and exits 3. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check.
 
 The final stdout line is one JSON object. A closed or aborted operation uses:
 
@@ -603,7 +604,8 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 the run reached `closed`, it handed the run to the Workflow backend while the
 run remains open, or it asked for a backend choice without opening a run (see
 below). Status 2 means command-line parsing rejected an unknown option, an
-unknown profile name, an unknown or missing command, a missing required
+unknown profile name, a positional profile that differs from `--profile`, an
+unknown command, a missing command (except with `--version`), a missing required
 argument (such as the resume run ID or an option value), or an extra argument:
 `usage:` is printed to standard error instead of a JSON result line.
 Status 3 means refusal before
@@ -976,7 +978,9 @@ an outcome.
 ## Workflow launcher
 
 The launcher first runs `python3 -B "$CLAUDE_SKILL_DIR/engine" audit
---ask-backend $ARGUMENTS` and reads only its final JSON line. For
+--ask-backend $ARGUMENTS` and reads only its final JSON line. `audit` accepts an
+optional positional profile or `--profile`; if both are given they must match,
+and if neither is given the profile is selected automatically. For
 `choose-backend` it asks, with the question tool, which of `choices` to use
 (the first is the recommendation) and runs `audit --backend <backend>
 $ARGUMENTS`, adding `--fast` when the answer's `fast` is true. If the question
@@ -1032,7 +1036,11 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
 documents from that check. Links inside code fences or inline code are ignored,
 and an optional Markdown link title is not part of the target. Link targets may
-be angle-bracketed. Fragment and
+be angle-bracketed. Within a single line, destinations and titles follow
+CommonMark 0.31.2 rules (balanced or backslash-escaped parentheses, spaces in
+`<...>`, and double-quoted, single-quoted, or parenthesized titles); multiline
+links, nested square brackets in link text, and reference definitions indented
+by four or more spaces are not extracted. Fragment and
 query parts are discarded; empty, `http:`, `https:`, `mailto:`, and `tel:`
 targets are ignored. Relative paths use the containing document directory.
 Repository escapes fail `links` and are ignored by `orphan`. Existing files and
@@ -1203,5 +1211,12 @@ limit is null; `rejected` is zero or one. The invariant is
 `total <= reserved`. Equality holds for an uninterrupted Codex run and for
 received Workflow generations. It may be strict after interruption between
 reservation and model-call recording, or when a Workflow generation was
-issued but never received. The final duration is recorded in
-`metrics.json`, but the engine performs no duration calibration.
+issued but never received. For a run that publishes a report, duration and
+model-call measurements are computed once at render time and shared by the
+report, `metrics.json`, and the history outcome row's `metrics`.
+`duration.reportPublishedAt` retains its name but holds the render time, not
+the publication time. The report measurement lines are `- duration: <wallMs> ms`
+and `- modelCalls: <total>`, with `未計測` for a missing value. Only `metrics.json`
+adds `postPublishMs`. Runs without a published report, including undecided runs
+before rendering and publication failures, compute measurements at record time.
+The engine performs no duration calibration.
