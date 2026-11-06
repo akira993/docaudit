@@ -564,7 +564,10 @@ it appends `verdict-intent` before exclusively publishing `verdict.json`.
 Pre-gate undecided reasons `backend-unavailable`, `anchor-missing`, `impact-limit`,
 `snapshot-too-large`, `corpus-unreadable`, `git-failed`, and
 `worktree-too-large` do not publish a report or verdict. Gate-time undecided
-outcomes do publish a report. Report rendering shows the REFUSED reason and
+outcomes do publish a report. Scope calculation uses `corpus-unreadable:<path>`
+with the unreadable path. When `worktree.tolerateChangesIn` is non-empty,
+corpus validation can instead reject with that reason before opening a run
+(exit status 3). Report rendering shows the REFUSED reason and
 `refusedChecks`, or the undecided reason, under `## 判定`. When paths were
 tolerated, it adds `- 大目に見た作業木の変化: <count> 件` and, if any paths are safe to
 display, `- 大目に見た path（先頭 <k> 件）: <path1>, ...` for up to the first five.
@@ -600,8 +603,10 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 the run reached `closed`, it handed the run to the Workflow backend while the
 run remains open, or it asked for a backend choice without opening a run (see
 below). Status 2 means command-line parsing rejected an unknown option, an
-unknown `--profile` value, or a missing command: `usage:` is printed to
-standard error instead of a JSON result line. Status 3 means refusal before
+unknown profile name, an unknown or missing command, a missing required
+argument (such as the resume run ID or an option value), or an extra argument:
+`usage:` is printed to standard error instead of a JSON result line.
+Status 3 means refusal before
 opening a run or before starting a resume;
 its `nextAction` is `abort`, `runId` and `outcome` are null, and `reason`
 identifies the refusal. The selected or default profile is checked against
@@ -620,8 +625,9 @@ means the run cannot proceed or record an outcome; a profile refusal such as
 with that run's `runId` and leaves it open. Other cases include a later
 `mutex-timeout` or report-name exhaustion (`path-exhausted`). The `abort`
 result carries that run's `runId`, and the run stays open for resume or abandon;
-it does not reach `closed`. Operating-system errors and rejected writes can
-also interrupt an opened run. Recovery-detected integrity failures are
+it does not reach `closed`. While `history.jsonl` is unreadable or corrupt,
+resuming or abandoning that run may continue to fail. Operating-system errors
+and rejected writes can also interrupt an opened run. Recovery-detected integrity failures are
 recorded in history and closed with status 0. Resume also reconciles a
 recorded outcome and any missing anchor step before closing it.
 
@@ -653,7 +659,10 @@ transitions through `running`, and either continues the layer or returns to the
 awaiting state.
 
 With `--ask-backend`, no `--backend`, and at least two usable backends, the
-engine opens no run, exits with status 0, and prints the backend question:
+engine opens no run, exits with status 0, and prints the backend question
+after configuration loading, worktree tolerance validation, and profile
+resolution succeed. Refusals in those checks return status 3 before the
+question:
 
 ```json
 {"nextAction":"choose-backend","runId":null,"outcome":null,"choices":[{"backend":"codex","fast":false},{"backend":"codex","fast":true},{"backend":"agy","fast":false},{"backend":"claude","fast":false}]}
