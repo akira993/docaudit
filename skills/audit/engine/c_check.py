@@ -8,6 +8,7 @@ import os
 import posixpath
 import re
 import stat
+import string
 import sys
 import urllib.parse
 
@@ -19,7 +20,7 @@ from .deps import AdapterResult
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 KILL_GRACE_SEC = 5
 CHECK_OUTPUT_MAX_BYTES = 1024 * 1024
-_LINK = re.compile(r"!?(?:\[[^\]]*\]\(([^)]+)\)|^\s*\[[^\]]+\]:\s*(\S+))", re.M)
+_LINK = re.compile(r"!?\[[^\]\r\n]*\]\(|(?P<reference>^ {0,3}\[[^\]\r\n]+\]:[ \t]*)", re.M)
 _TICK = re.compile(r"`([^`\n]+)`")
 
 
@@ -56,18 +57,82 @@ def _mask_fenced(text):
     return "".join(output)
 
 
+def _link_destination(text, start):
+    angled = text[start:start + 1] == "<"
+    position = start + int(angled)
+    depth = 0
+    output = []
+    while position < len(text):
+        char = text[position]
+        if char == "\\" and position + 1 < len(text) and text[position + 1] in string.punctuation:
+            output.append(text[position + 1])
+            position += 2
+            continue
+        if angled:
+            if char == ">":
+                return "".join(output), position + 1
+            if char == "<":
+                return None
+        else:
+            if ord(char) <= 32 or ord(char) == 127 or (char == ")" and depth == 0):
+                break
+            if char == "(": depth += 1
+            elif char == ")": depth -= 1
+        output.append(char)
+        position += 1
+    if not angled and output and depth == 0:
+        return "".join(output), position
+    return None
+
+
+def _link_target(text, start, reference):
+    position = start
+    while position < len(text) and text[position] in " \t": position += 1
+    if not reference and text[position:position + 1] == ")":
+        return "", position + 1
+    destination = _link_destination(text, position)
+    if destination is None:
+        return None
+    target, end = destination
+    position = end
+    while position < len(text) and text[position] in " \t": position += 1
+    if position > end and position < len(text) and text[position] in "\"'(":
+        opening = text[position]
+        closing = ")" if opening == "(" else opening
+        position += 1
+        while position < len(text):
+            char = text[position]
+            if char == "\\" and position + 1 < len(text) and text[position + 1] in string.punctuation:
+                position += 2
+                continue
+            if char == closing:
+                break
+            if opening == "(" and char == "(":
+                return None
+            position += 1
+        if position == len(text):
+            return None
+        position += 1
+        while position < len(text) and text[position] in " \t": position += 1
+    if reference:
+        return (target, position) if position == len(text) else None
+    if text[position:position + 1] == ")":
+        return target, position + 1
+    return None
+
+
 def _targets(text):
     masked = _mask_fenced(text)
     masked = re.sub(r"`[^`\n]*`", lambda match: " " * len(match.group(0)), masked)
-    for match in _LINK.finditer(masked):
-        raw = match.group(1) or match.group(2)
-        if raw:
-            raw = raw.strip()
-            if raw.startswith("<") and ">" in raw:
-                raw = raw[1:raw.index(">")]
-            else:
-                raw = re.sub(r'''\s+(?:"[^"]*"|'[^']*'|\([^)]*\))\s*$''', "", raw)
-            yield raw
+    for line in re.split(r"\r\n?|\n", masked):
+        position = 0
+        while match := _LINK.search(line, position):
+            position = match.end()
+            parsed = _link_target(line, position, match.group("reference") is not None)
+            if parsed is not None:
+                target, position = parsed
+                if target:
+                    yield target
 
 
 def _resolve(doc, target):
