@@ -80,7 +80,7 @@ skill は前の session から残った run を回復しないので、明示的
 前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が `resume-in-progress` で拒否されたら別の process が終わるのを待って再度再開して。`run-not-found` または `run-closed` ならその ID の開いている run がないので止めて伝えて。それ以外の理由（`history-corrupt` を含む）で再開が失敗し続けるなら、履歴は自分で修復せず、同じコマンドに --abandon を付けて 1 回試し、成功・失敗のいずれでも止めて、再開と放棄の両方の結果を伝えて。
 ```
 
-期待: run が `closed` に到達し、次の監査を始められます。結果が未記録なら、放棄は verdict なしで run を closed として記録します（`undecided abandoned`）。中断前に結果が記録済みなら、その結果を保ち、放棄の結果は追加しません。放棄では anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。anchor file だけが壊れている場合は放棄できます。
+期待: run が `closed` に到達し、次の監査を始められます。放棄が成功すると、結果が記録済みでも結果行には常に `undecided abandoned` が表示されます。`history.jsonl` では、結果が未記録なら、放棄は verdict なしで run を closed として記録します（`undecided abandoned`）。中断前に結果が記録済みなら、その結果を保ち、放棄の結果は追加しません。放棄では anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。`PermissionError`・`OSError` などの OS のエラーでも終了値 4 で失敗します。`history-corrupt` を含むこれらの履歴の読み取りの失敗では、結果行の `runId` は null です。修復方法は [ADOPTION.ja.md](ADOPTION.ja.md) 第 11 節の `history-corrupt` の項を参照してください。anchor file だけが壊れている場合は放棄できます。
 
 ## 9. 定期実行・非対話での実行
 
@@ -90,7 +90,7 @@ Claude Code の外では engine に Codex backend か、設定済みの agy が�
 python3 ~/.claude/skills/docaudit/skills/audit/engine audit --profile standard --backend codex --repo-root /path/to/repo
 ```
 
-engine の結果では出力の最終行を JSON として読み、`outcome` を確認します。`reportPath` があるのは report が公開された場合だけです（例: `undecided backend-unavailable` には report も `reportPath` もありません）。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 2 はコマンド行の解析で未知の option・未知の `--profile` 値・command のない呼び出しが拒否されたことを示し、JSON の結果行の代わりに `usage:` で始まる使い方が標準エラーに表示されます。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。無効な `--backend` 値は engine が `backend-invalid` として扱い、終了値 3 になります。
+engine の結果では出力の最終行を JSON として読み、`outcome` を確認します。`reportPath` があるのは report が公開された場合だけです（例: `undecided backend-unavailable` には report も `reportPath` もありません）。終了値 0 は `CONSISTENT`・`NEEDS_FIX`・`undecided`・`REFUSED` のすべてを含むので、判断には終了値ではなく `outcome` を使ってください。終了値 2 はコマンド行の解析で未知の option・command 名・profile 名、option の値の欠落、必須の位置引数（例: `resume` の run ID）の欠落、余分な引数、または command のない呼び出し（`--version` 指定時を除く）が拒否されたことを示し、JSON の結果行の代わりに `usage:` で始まる使い方が標準エラーに表示されます。終了値 3 は engine が run を開くことを拒否したことで、`reason` に理由が出ます。無効な `--backend` 値は engine が `backend-invalid` として扱い、終了値 3 になります。
 
 skill 自体を非対話で動かすには、リポジトリで Claude Code を print mode で使います。
 
