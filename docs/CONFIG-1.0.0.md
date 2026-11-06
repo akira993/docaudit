@@ -428,6 +428,9 @@ matches the rendered SHA-256, resume reconstructs a receipt with
 `allowedWritePaths`, `treeDigestBefore`, `maxModelCalls`, `retrieval`, and
 `manifestHash`.
 
+`profileSelectionSource` in the plan and manifest is `explicit`, `classifier`,
+or `classifier-demoted`.
+
 Optional `acceptBaseline` is a boolean; absent means false, and true is valid only with `mode: full`.
 
 `accept-baseline-requires-full` rejects an acceptance request that is not a full run.
@@ -604,6 +607,7 @@ The final stdout line is one JSON object. A closed or aborted operation uses:
 the run reached `closed`, it handed the run to the Workflow backend while the
 run remains open, or it asked for a backend choice without opening a run (see
 below). Status 2 means command-line parsing rejected an unknown option, an
+ambiguous option abbreviation (such as `--f`), an
 unknown profile name, a positional profile that differs from `--profile`, an
 unknown command, a missing command (except with `--version`), a missing required
 argument (such as the resume run ID or an option value), or an extra argument:
@@ -628,7 +632,9 @@ with that run's `runId` and leaves it open. Other cases include a later
 `mutex-timeout` or report-name exhaustion (`path-exhausted`). The `abort`
 result carries that run's `runId`, and the run stays open for resume or abandon;
 it does not reach `closed`. While `history.jsonl` is unreadable or corrupt,
-resuming or abandoning that run may continue to fail. Operating-system errors
+resuming or abandoning that run may continue to fail. Abandonment rejected for
+`history-corrupt`, or `PermissionError` or `OSError` while reading history,
+returns status 4 with a null `runId`. Operating-system errors
 and rejected writes can also interrupt an opened run. Recovery-detected integrity failures are
 recorded in history and closed with status 0. Resume also reconciles a
 recorded outcome and any missing anchor step before closing it.
@@ -663,8 +669,10 @@ awaiting state.
 With `--ask-backend`, no `--backend`, and at least two usable backends, the
 engine opens no run, exits with status 0, and prints the backend question
 after configuration loading, worktree tolerance validation, and profile
-resolution succeed. Refusals in those checks return status 3 before the
-question:
+resolution succeed. Argument inconsistencies (`accept-baseline-requires-full`,
+`backend-invalid`, and `fast-requires-codex`) are rejected before configuration
+loading. Those refusals and refusals in the checks above return status 3 before
+the question:
 
 ```json
 {"nextAction":"choose-backend","runId":null,"outcome":null,"choices":[{"backend":"codex","fast":false},{"backend":"codex","fast":true},{"backend":"agy","fast":false},{"backend":"claude","fast":false}]}
@@ -1212,8 +1220,13 @@ limit is null; `rejected` is zero or one. The invariant is
 received Workflow generations. It may be strict after interruption between
 reservation and model-call recording, or when a Workflow generation was
 issued but never received. For a run that publishes a report, duration and
-model-call measurements are computed once at render time and shared by the
-report, `metrics.json`, and the history outcome row's `metrics`.
+model-call measurements are computed once immediately before rendering and
+shared by the report, `metrics.json`, and the history outcome row's `metrics`.
+Consequently, `duration.componentMs` for `C-REPORT` excludes rendering and
+publication time (effectively 0), and `duration.wallMs` also excludes rendering
+and publication time. If a run already rendered by 1.7.0 is resumed by 1.8.0,
+the report's measurements remain `未計測`, while `metrics.json` and the history
+outcome row contain measurements computed at record time.
 `duration.reportPublishedAt` retains its name but holds the render time, not
 the publication time. The report measurement lines are `- duration: <wallMs> ms`
 and `- modelCalls: <total>`, with `未計測` for a missing value. Only `metrics.json`

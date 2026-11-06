@@ -12,7 +12,7 @@ from skills.audit.engine import c_report
 from .fixtures import init_repo
 from .test_c_engine import (
     InjectedStop, _assert_success, _complete_adapter, _deps, _engine,
-    _json, _one_failure, _run_dir, _run_id,
+    _json, _one_failure, _run_dir, _run_id, _state,
 )
 
 
@@ -66,6 +66,9 @@ class ReportMetricsTests(unittest.TestCase):
         rendered = next(row["data"] for row in journal if row["kind"] == "rendered")
         self.assertEqual(rendered["metrics"], {key: value for key, value in metrics.items() if key != "postPublishMs"})
         self.assertNotIn("postPublishMs", rendered["metrics"])
+        history = [json.loads(line) for line in (_state(root) / "history.jsonl").read_text().splitlines()]
+        outcome = next(row for row in history if row["kind"] == "outcome" and row["runId"] == result["runId"])
+        self.assertEqual(outcome["data"]["metrics"], {key: value for key, value in metrics.items() if key != "postPublishMs"})
         receipt = next(row["data"]["receipt"] for row in journal if row["kind"] == "reported")
         self.assertLess(metrics["duration"]["reportPublishedAt"], receipt["publishedAt"])
         return metrics
