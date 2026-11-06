@@ -521,7 +521,9 @@ Gate applies these checks in order:
 2. missing or unreadable published `manifest.json`, invalid JSON, or a
    value other than a JSON object gives `REFUSED seal-drift` before the
    configuration bytes are checked; otherwise their SHA-256 must match
-   manifest `configHash` (which must exist), or `REFUSED config-drift` follows;
+   manifest `configHash`, or `REFUSED config-drift` follows. If the configuration
+   is unreadable and `configHash` is also missing, both compare as null; this
+   check passes and step 3 instead gives `REFUSED seal-drift`;
 3. manifest, latest manifest intent, sealed-file bytes, or semantic plan
    mismatch gives `REFUSED seal-drift`;
 4. an evidence record hash mismatch gives `REFUSED evidence-tampered` and has
