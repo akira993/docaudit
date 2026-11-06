@@ -269,7 +269,7 @@ skill は前の session から残った run を回復しません。手作業か
 
 `L-PROJECT` は封印 corpus に 4 種類の読み取り専用チェックを適用します。必須の front matter 項目（WARN）、ローカルな Markdown リンク（リンク先がなければ blocking な FAIL）、何も指していない path 風のバッククォート token（WARN）、他の文書や index file からリンクされていない文書（WARN）です。`documentChecks.indexFiles` に挙げた文書自身は orphan と報告されません。`documentChecks.layerGlobs` は一致する文書をチェックから外します。たとえば生成された index を orphan チェックから除外できます。封印 corpus が 1 文書だけの場合、orphan チェックは実行されず `orphan: skipped` と記録されます。
 
-`links` と `orphan` では、1 行の中のリンク先とタイトルを CommonMark 0.31.2 の規則で読み（括弧の対応、逆斜線で打ち消した括弧、空白を含む `<...>` のリンク先、二重引用符・一重引用符・括弧で囲んだタイトルをリンク先に含めない）、複数行にまたがるリンク・リンク文の中の入れ子の角括弧・4 文字以上の空白で字下げした参照定義は抽出しません。
+`links` と `orphan` では、リンク先とタイトルを CommonMark 0.31.2 の対応する形式で読み（最大 32 段までの括弧の対応、逆斜線で打ち消した括弧、空白を含む `<...>` のリンク先、二重引用符・一重引用符・括弧で囲んだタイトルをリンク先に含めない）、リンク文とタイトルは空行を挟まずに複数行にまたがることができ、区切りの空白が許される位置には改行を 1 つ含められますが、リンク先そのものは改行を含められず、リンク文の中の入れ子の角括弧・4 文字以上の空白で字下げした参照定義（リスト内も含む）は抽出せず、リンク先の名前付き・数値文字参照（例 `&amp;`）は解釈せず書かれた文字列のまま扱います。
 
 `projectChecks` は自分のコマンドを追加します。各項目はチェック ID・`argv`・timeout・任意の作業ディレクトリを持ちます。コマンドは macOS 上で、`/dev/null` を除き private な一時ディレクトリ以外への書込みを禁じる `sandbox-exec` の profile の中で実行され、`findings` 配列を持つ JSON object を出力しなければなりません。各所見は `id`・`summary`・`severity`（`INFO`・`WARN`・`FAIL`）と任意の `path` を持ちます。`FAIL` の所見は blocking で、すべての文書が合格していても run は `NEEDS_FIX` で終わります。0 以外の終了値・timeout・不正な出力はそれ自体が blocking な `FAIL` 所見になります。`standard`・`extended` ではこの検査が動き、`focused` では動きません。Darwin 以外で空でない `projectChecks` を使うと `undecided sandbox-unavailable` になりますが、Linux では `audit`・`resume`（`--abandon` なし）・`migrate`（`--dry-run` なし）の書込みの見張りが `fcntl.F_GETPATH` を必要とするため、その前に `io-unsupported-platform` で止まる見込みです（コードの追跡による、Linux 実機では未実行）。`projectChecks` を空にしてもこれらの命令の制限は解消しません。`scope`・`migrate --dry-run`・`resume --abandon` は見張りを使わず、この理由では止まりません。
 

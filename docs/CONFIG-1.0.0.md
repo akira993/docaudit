@@ -1044,11 +1044,15 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
 documents from that check. Links inside code fences or inline code are ignored,
 and an optional Markdown link title is not part of the target. Link targets may
-be angle-bracketed. Within a single line, destinations and titles follow
-CommonMark 0.31.2 rules (balanced or backslash-escaped parentheses, spaces in
-`<...>`, and double-quoted, single-quoted, or parenthesized titles); multiline
-links, nested square brackets in link text, and reference definitions indented
-by four or more spaces are not extracted. Fragment and
+be angle-bracketed. Destinations and titles support CommonMark 0.31.2 forms
+(balanced parentheses with up to 32 nested pairs, backslash-escaped parentheses,
+spaces in `<...>`, and double-quoted, single-quoted, or parenthesized titles).
+Link text and titles may span nonblank lines; permitted separating whitespace
+may contain one line ending, but destinations cannot contain line endings.
+Nested square brackets in link text and reference definitions indented by four
+or more spaces (including inside lists) are not extracted. Entity and numeric
+character references in destinations (for example `&amp;`) are kept literal
+rather than decoded. Fragment and
 query parts are discarded; empty, `http:`, `https:`, `mailto:`, and `tel:`
 targets are ignored. Relative paths use the containing document directory.
 Repository escapes fail `links` and are ignored by `orphan`. Existing files and

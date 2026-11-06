@@ -20,7 +20,10 @@ from .deps import AdapterResult
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 KILL_GRACE_SEC = 5
 CHECK_OUTPUT_MAX_BYTES = 1024 * 1024
-_LINK = re.compile(r"!?\[[^\]\r\n]*\]\(|(?P<reference>^ {0,3}\[[^\]\r\n]+\]:[ \t]*)", re.M)
+_LINK = re.compile(r"!?\[(?P<text>[^\[\]]*)\]\(|(?P<reference>^ {0,3}\[[^\[\]\n]+\]:)", re.M)
+_LINK_SPACE = re.compile(r"[ \t]*(?:\n[ \t]*)?")
+_HORIZONTAL_SPACE = re.compile(r"[ \t]*")
+_BLANK_LINE = re.compile(r"\n[ \t]*\n")
 _TICK = re.compile(r"`([^`\n]+)`")
 
 
@@ -71,12 +74,16 @@ def _link_destination(text, start):
         if angled:
             if char == ">":
                 return "".join(output), position + 1
-            if char == "<":
+            if char in "<\n":
                 return None
         else:
             if ord(char) <= 32 or ord(char) == 127 or (char == ")" and depth == 0):
                 break
-            if char == "(": depth += 1
+            if char == "(":
+                depth += 1
+                # Bound failed rescans, as cmark does for nested destinations.
+                if depth > 32:
+                    return None
             elif char == ")": depth -= 1
         output.append(char)
         position += 1
@@ -86,16 +93,17 @@ def _link_destination(text, start):
 
 
 def _link_target(text, start, reference):
-    position = start
-    while position < len(text) and text[position] in " \t": position += 1
+    position = _LINK_SPACE.match(text, start).end()
     if not reference and text[position:position + 1] == ")":
         return "", position + 1
     destination = _link_destination(text, position)
     if destination is None:
         return None
     target, end = destination
-    position = end
-    while position < len(text) and text[position] in " \t": position += 1
+    position = _HORIZONTAL_SPACE.match(text, end).end()
+    # A failed title on the next line leaves the destination-only definition.
+    fallback = (target, position) if reference and (position == len(text) or text[position] == "\n") else None
+    position = _LINK_SPACE.match(text, end).end()
     if position > end and position < len(text) and text[position] in "\"'(":
         opening = text[position]
         closing = ")" if opening == "(" else opening
@@ -107,15 +115,18 @@ def _link_target(text, start, reference):
                 continue
             if char == closing:
                 break
-            if opening == "(" and char == "(":
-                return None
+            if (opening == "(" and char == "(") or _BLANK_LINE.match(text, position):
+                return fallback
             position += 1
         if position == len(text):
-            return None
+            return fallback
         position += 1
-        while position < len(text) and text[position] in " \t": position += 1
+        spacing = _HORIZONTAL_SPACE if reference else _LINK_SPACE
+        position = spacing.match(text, position).end()
+        if reference:
+            return (target, position) if position == len(text) or text[position] == "\n" else fallback
     if reference:
-        return (target, position) if position == len(text) else None
+        return fallback
     if text[position:position + 1] == ")":
         return target, position + 1
     return None
@@ -124,15 +135,17 @@ def _link_target(text, start, reference):
 def _targets(text):
     masked = _mask_fenced(text)
     masked = re.sub(r"`[^`\n]*`", lambda match: " " * len(match.group(0)), masked)
-    for line in re.split(r"\r\n?|\n", masked):
-        position = 0
-        while match := _LINK.search(line, position):
-            position = match.end()
-            parsed = _link_target(line, position, match.group("reference") is not None)
-            if parsed is not None:
-                target, position = parsed
-                if target:
-                    yield target
+    masked = masked.replace("\r\n", "\n").replace("\r", "\n")
+    position = 0
+    while match := _LINK.search(masked, position):
+        position = match.end()
+        if match.group("text") is not None and _BLANK_LINE.search(match.group("text")):
+            continue
+        parsed = _link_target(masked, position, match.group("reference") is not None)
+        if parsed is not None:
+            target, position = parsed
+            if target:
+                yield target
 
 
 def _resolve(doc, target):
