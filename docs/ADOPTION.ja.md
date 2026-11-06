@@ -308,4 +308,6 @@ skill は前の session から残った run を回復しません。手作業か
 
 ## Workflow の文書探索：索引の廃止
 
-Workflow の文書探索は対象を絞った検索と Read を使います。mdq を必要とせず文書の索引を作りません。記録する reason は `mdq-retired` です。新しい Workflow run の方式は常に `grep` で、`indexDb`・`indexCwd`・`indexLang` はすべて null です。`index` の方式は 1.7.0 より前に封印された記録にだけ出ます。文書の複製は作りませんが、探索準備時には封印済みの各パスを検査し、文書や親フォルダがリンクに変わっていれば `undecided` / `corpus-unreadable` で閉じます。この検査は準備の完了前に中断した run の再開時にも行います。更新前に、旧 engine で開いた run を完了または放棄してください。
+Workflow の文書探索は PATH にあるツールにかかわらず、対象を絞った文字列検索と Read を使います。外部の文書索引の作成や健全性検査は行いません。記録する reason は `mdq-retired` です。新しい Workflow run の方式は常に `grep` で、`indexDb`・`indexCwd`・`indexLang` はすべて null です。`index` の方式は 1.7.0 より前に封印された記録にだけ出ます。文書の複製は作りませんが、探索準備時には封印済みの各パスを検査し、文書や親フォルダがリンクに変わっていれば `undecided` / `corpus-unreadable` で閉じます。この検査は準備の完了前に中断した run の再開時にも行います。旧一時索引の片付け経路は残りますが、対象のリポジトリと run が所有することを確認できた索引に限ります。更新前に、旧 engine で開いた run を完了または放棄してください。
+
+プロジェクトの文書をまたぐ Markdown 調査には mdrg（公開準備中）を推奨します。engine は mdrg を呼び出しません。

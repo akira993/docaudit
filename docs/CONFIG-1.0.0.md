@@ -93,7 +93,7 @@ For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.md
 | `webExtract` | do not migrate | — | capability-detected |
 | `symbolGraph` | do not migrate | — | capability-detected |
 | `semanticSearch` | do not migrate | — | capability-detected |
-| `indexing` | do not migrate | — | capability-detected |
+| `indexing` | do not migrate | — | external index retrieval retired in 1.7.0 |
 | `contextMode` | do not migrate | — | capability-detected |
 
 ## Migration
@@ -471,8 +471,8 @@ lease is acquired. The worktree digest excludes the frozen final and temporary
 write paths, but records every other entry regardless of Git ignore rules,
 including entries under `worktree.tolerateChangesIn`. Toleration affects the
 gate's decision, not the snapshot. The fixed tool-directory exclusions are the
-repository's top-level `.git/` and, since 1.0.1, `.mdq/` (mdq's index and usage
-records); 1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
+repository's top-level `.git/` and, since 1.0.1, `.mdq/` (legacy tool output);
+1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
 the engine and may grow in later versions.
 
 Within a listed location, a file that disappears during scanning is omitted
@@ -953,7 +953,7 @@ The gate still ignores the repository's top-level `.mdq/`; it is not an index
 created by this version. Close earlier open runs with the earlier engine before
 upgrading. Cleanup of old external indexes remains available:
 
-Each index directory contains an ownership marker `owner.json` with
+Older temporary index directories carry an ownership marker `owner.json` with
 `{"repo": sha256(repo root realpath), "runId": "..."}`. After a run is opened,
 stale `docaudit-index-*` directories other than the current run are removed on
 a best-effort basis only when this marker identifies the current repository.
