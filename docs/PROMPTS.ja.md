@@ -80,7 +80,7 @@ skill は前の session から残った run を回復しないので、明示的
 前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が `resume-in-progress` で拒否されたら別の process が終わるのを待って再度再開して。`run-not-found` または `run-closed` ならその ID の開いている run がないので止めて伝えて。それ以外の理由（`history-corrupt` を含む）で再開が失敗し続けるなら、履歴は自分で修復せず、同じコマンドに --abandon を付けて 1 回試し、成功・失敗のいずれでも止めて、再開と放棄の両方の結果を伝えて。
 ```
 
-期待: run が `closed` に到達し、次の監査を始められます。放棄は verdict なしで run を closed として記録し（`undecided abandoned`）、anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。anchor file だけが壊れている場合は放棄できます。
+期待: run が `closed` に到達し、次の監査を始められます。結果が未記録なら、放棄は verdict なしで run を closed として記録します（`undecided abandoned`）。中断前に結果が記録済みなら、その結果を保ち、放棄の結果は追加しません。放棄では anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。anchor file だけが壊れている場合は放棄できます。
 
 ## 9. 定期実行・非対話での実行
 
