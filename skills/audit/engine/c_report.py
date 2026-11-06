@@ -110,7 +110,12 @@ def render(facts):
         anchor = "前進条件を満たす（--accept-baseline による受理）"
     elif facts.get("acceptBaseline") is True and facts.get("verdict")=="NEEDS_FIX":
         anchor = "前進条件を満たさない（--accept-baseline は文書判定以外の blocking を受理しない）"
-    lines += ["",REPORT_SECTIONS[5],"- "+anchor,"",REPORT_SECTIONS[6],f"- duration: {facts.get('metrics',{}).get('duration','未計測')}",f"- modelCalls: {facts.get('metrics',{}).get('modelCalls','未計測')}","",REPORT_SECTIONS[7],f"- manifest hash: {facts.get('manifestHash','')}",f"- evidence hash: {facts.get('evidenceHash','')}",""]
+    metrics=facts.get("metrics",{})
+    wall_ms=metrics.get("duration",{}).get("wallMs")
+    model_calls=metrics.get("modelCalls",{}).get("total")
+    duration=f"{wall_ms} ms" if wall_ms is not None else "未計測"
+    model_calls=str(model_calls) if model_calls is not None else "未計測"
+    lines += ["",REPORT_SECTIONS[5],"- "+anchor,"",REPORT_SECTIONS[6],f"- duration: {duration}",f"- modelCalls: {model_calls}","",REPORT_SECTIONS[7],f"- manifest hash: {facts.get('manifestHash','')}",f"- evidence hash: {facts.get('evidenceHash','')}",""]
     text="\n".join(lines); _safe(text); return text
 def publish(repo,rel_path,text,published_at=None):
     try: c_io.publish_exclusive(repo,rel_path,text)

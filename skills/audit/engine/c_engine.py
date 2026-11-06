@@ -627,6 +627,19 @@ def _findings(ledger):
     return judgements + findings
 
 
+def _metrics(ledger, scope, manifest, outcome, timeline, measured_at, journal):
+    return {
+        "duration": timeline.duration(measured_at, scope, manifest, outcome),
+        "modelCalls": c_evidence.model_call_summary(
+            ledger, scope, outcome, journal=journal, limit=manifest.get("maxModelCalls"),
+        ),
+        "retrieval": {
+            "method": manifest.get("retrieval", {}).get("method"),
+            "indexHealthy": manifest.get("retrieval", {}).get("indexHealthy"),
+        },
+    }
+
+
 def _render(handle, dependencies, journal, manifest, scope, verdict, ledger, timeline):
     event = _event(journal, "rendered")
     raw = _read_optional(handle.state_dir_fd, handle.run_id, "report.rendered.md")
@@ -641,12 +654,15 @@ def _render(handle, dependencies, journal, manifest, scope, verdict, ledger, tim
     facts.update(verdict)
     facts["findings"] = _findings(ledger)
     facts["anchorEligible"] = verdict.get("verdict") == "CONSISTENT" or _baseline_eligible(manifest, verdict)
+    outcome = verdict.get("verdict") or verdict.get("outcome", "undecided")
+    metrics = _metrics(ledger, scope, manifest, outcome, timeline, _stamp(dependencies), journal)
+    facts["metrics"] = metrics
     text = timeline.call("C-REPORT", c_report.render, facts)
     encoded = text.encode("utf-8")
     c_io.write_atomic(handle.state_dir_fd, _run_rel(handle.run_id, "report.rendered.md"), encoded)
     context = {"runId": handle.run_id, "sha256": _sha(encoded)}
     _hook(dependencies, "before-rendered", context)
-    journal.append(c_run.append_journal(handle, "rendered", {"sha256": _sha(encoded)}))
+    journal.append(c_run.append_journal(handle, "rendered", {"sha256": _sha(encoded), "metrics": metrics}))
     _hook(dependencies, "rendered", context)
     return text
 
@@ -752,17 +768,10 @@ def _record(repo, handle, dependencies, journal, manifest, scope, verdict, ledge
     outcome = verdict.get("verdict") or verdict.get("outcome", "undecided")
     if reason is not None:
         outcome = "undecided"
-    duration = timeline.duration(published, scope, manifest, outcome)
-    metrics = {
-        "duration": duration,
-        "modelCalls": c_evidence.model_call_summary(
-            ledger, scope, outcome, journal=journal, limit=manifest.get("maxModelCalls"),
-        ),
-        "retrieval": {
-            "method": manifest.get("retrieval", {}).get("method"),
-            "indexHealthy": manifest.get("retrieval", {}).get("indexHealthy"),
-        },
-    }
+    rendered = _event(journal, "rendered") if receipt is not None and reason is None else None
+    metrics = rendered.get("data", {}).get("metrics") if rendered is not None else None
+    if metrics is None:
+        metrics = _metrics(ledger, scope, manifest, outcome, timeline, published, journal)
     accepted = verdict.get("verdict") != "REFUSED" and c_evidence.verify_ledger(ledger)
     if accepted:
         items, skipped = _judgements(ledger, manifest, scope, _stamp(dependencies))
