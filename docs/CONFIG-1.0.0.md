@@ -622,10 +622,12 @@ identifies the refusal. The selected or default profile is checked against
 include `backend-invalid` for a `--backend` value other than `agy`,
 `codex`, or `claude`, `fast-requires-codex` for `--fast` without
 `--backend codex`, and `accept-baseline-requires-full` for
-`--accept-baseline` without `--full`. A missing `fcntl.F_GETPATH` returns `io-unsupported-platform` with a null
+`--accept-baseline` without `--full`. A platform without descriptor-relative
+`os.replace` is refused before any command with status 3,
+`io-unsupported-platform`, and `runId: null`. A missing `fcntl.F_GETPATH` returns `io-unsupported-platform` with a null
 `runId`: status 3 for `audit` and `resume`, but status 4 for `migrate` that
 reaches writes (simulated on macOS by removing `fcntl.F_GETPATH`; not run on a
-Linux machine). Resume refusals before the transition to running
+Linux machine). With `--ask-backend`, no `--backend`, and at least two usable backends, `audit` returns the `choose-backend` question first with status 0. Resume refusals before the transition to running
 include `run-not-found`, `run-closed`, `resume-in-progress`, and `mutex-timeout`;
 a timeout while opening a run also returns 3 with a null `runId`. For
 engine-handled interruptions after a run opens or a resume starts, status 4
