@@ -235,6 +235,8 @@ class CliOptionTests(_IsolatedEnv):
             )
             self.addCleanup(process.kill)
             self.addCleanup(process.stdin.close)
+            self.addCleanup(process.stdout.close)
+            self.addCleanup(process.stderr.close)
             try:
                 process.wait(timeout=90)
             except subprocess.TimeoutExpired:
