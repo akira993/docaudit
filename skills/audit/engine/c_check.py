@@ -25,6 +25,177 @@ _LINK_SPACE = re.compile(r"[ \t]*(?:\n[ \t]*)?")
 _HORIZONTAL_SPACE = re.compile(r"[ \t]*")
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
 _TICK = re.compile(r"`([^`\n]+)`")
+_CODE_LINE = re.compile(r"[^\r\n]*(?:\r\n?|\n|$)")
+_CODE_QUOTE = re.compile(r" {0,3}>[ \t]?")
+_CODE_ATX = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+_CODE_FENCE = re.compile(r" {0,3}(?:`{3,}|~{3,})")
+_CODE_LIST = re.compile(r" {0,3}(?P<marker>[-+*]|[0-9]{1,9}[.)])(?:[ \t]+|$)")
+_CODE_BREAK = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,}|=+|-+)[ \t]*$")
+_CODE_HTML = re.compile(
+    r" {0,3}<(?:!--|\?|![A-Za-z]|!\[CDATA\[|(?:pre|script|style|textarea)(?=[ \t>]|$)|"
+    r"/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|"
+    r"details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|"
+    r"head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"
+    r"option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)"
+    r"(?=[ \t]|/?>|$))", re.I)
+_CODE_TOKEN = re.compile(r"`+|^ {0,3}\[|!?\[|<", re.M)
+_CODE_LABEL = re.compile(r"`+|[\[\]<]")
+_CODE_LITERAL = re.compile(
+    r"<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\x00-\x20\x7f]*|"
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|"
+    r"/[A-Za-z][A-Za-z0-9-]*[ \t\n]*|"
+    r"[A-Za-z][A-Za-z0-9-]*(?:[ \t\n]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t\n]*=[ \t\n]*(?:\"[^\"]*\"|'[^']*'|[^ \t\n\"'=<>`]+))?)*[ \t\n]*/?|"
+    r"!--(?!>|->)(?:(?!--).)*--|\?(?:(?!\?>).)*\?|![A-Za-z][^>]*|"
+    r"!\[CDATA\[(?:(?!\]\]>).)*\]\])>", re.S)
+
+
+def _code_blocks(text):
+    """Bound inline scans by paragraph interruptions, retaining lazy lines."""
+    start = 0
+    quote_depth = 0
+    list_indent = 0
+    html = False
+    for match in _CODE_LINE.finditer(text):
+        if not match.group(0):
+            continue
+        line = match.group(0).rstrip("\r\n")
+        depth = 0
+        offset = 0
+        while prefix := _CODE_QUOTE.match(line, offset):
+            depth += 1
+            offset = prefix.end()
+        content = line[offset:]
+        blank = not content.strip(" \t")
+        quote_start = depth > 0 and depth != quote_depth
+        if quote_start:
+            list_indent = 0
+            html = False
+        # Indented list continuation lines belong to the existing item.
+        if list_indent and content.startswith(" " * list_indent):
+            content = content[list_indent:]
+        item = _CODE_LIST.match(content)
+        list_start = item is not None and (
+            list_indent or (content[item.end():].strip(" \t") and
+                            (len(item.group("marker")) == 1 or item.group("marker")[:-1] == "1")))
+        if list_start:
+            list_indent = item.end()
+            content = content[item.end():]
+        atx = _CODE_ATX.match(content) is not None
+        boundary = _CODE_BREAK.fullmatch(content) is not None
+        fence = _CODE_FENCE.match(content) is not None
+        indented = (start == match.start() and not list_indent and
+                    (content.startswith("    ") or content.startswith("\t")))
+        # HTML blocks are outside the inline subset. Conservatively retain
+        # 1.8.0's same-line treatment until a blank line or container boundary.
+        html = not blank and (html or fence or _CODE_HTML.match(content) is not None)
+        if blank or quote_start or list_start or atx or boundary or html or indented:
+            if start < match.start():
+                yield start, match.start()
+            start = match.start()
+        if depth:
+            quote_depth = depth
+        if blank or atx or boundary or html or indented:
+            yield start, match.end()
+            start = match.end()
+            quote_depth = 0
+            list_indent = 0
+    if start < len(text):
+        yield start, len(text)
+
+
+def _code_closers(text):
+    """Index the next equal-length run once per block, including escaped closers."""
+    closers = {}
+    for start, end in _code_blocks(text):
+        following = {}
+        for run in reversed(list(re.finditer(r"`+", text[start:end]))):
+            opening = start + run.start()
+            length = run.end() - run.start()
+            backslash = opening
+            while backslash > start and text[backslash - 1] == "\\":
+                backslash -= 1
+            escaped = (opening - backslash) % 2
+            # Only the first backtick is escaped; any remaining run can open.
+            closers[opening] = (opening + escaped, following.get(length - escaped))
+            following[length] = start + run.end()
+    return closers
+
+
+def _code_literal(text, start):
+    backslash = start
+    while backslash and text[backslash - 1] == "\\":
+        backslash -= 1
+    if (start - backslash) % 2 == 0:
+        return _CODE_LITERAL.match(text, start)
+    return None
+
+
+def _mask_code_spans(text):
+    """Read inlines left to right so valid link destinations/titles stay literal."""
+    closers = _code_closers(text)
+    spans = []
+    position = 0
+    while token := _CODE_TOKEN.search(text, position):
+        position = token.end()
+        if text[token.start()] == "`":
+            opening, closing = closers[token.start()]
+            if closing is not None:
+                spans.append((opening, closing))
+                position = closing
+            continue
+        if text[token.start()] == "<":
+            literal = _code_literal(text, token.start())
+            if literal is not None:
+                # Retain literal syntax (masking a tag could turn an invalid
+                # destination into a valid one), including 1.8.0's local masks.
+                spans.extend((literal.start() + run.start(), literal.start() + run.end())
+                             for run in re.finditer(r"`[^`\n]*`", literal.group(0)))
+                position = literal.end()
+            continue
+        reference = _LINK.match(text, token.start())
+        if reference is not None and reference.group("reference") is not None:
+            parsed = _link_target(text, reference.end(), True)
+            if parsed is not None:
+                position = parsed[1]
+                continue
+        # Code in link text binds before its brackets (CommonMark example 342).
+        # A raw nested '[' retains the extractor's existing subset restriction.
+        while label := _CODE_LABEL.search(text, position):
+            if text[label.start()] == "<":
+                literal = _code_literal(text, label.start())
+                position = label.end()
+                if literal is not None:
+                    spans.extend((literal.start() + run.start(), literal.start() + run.end())
+                                 for run in re.finditer(r"`[^`\n]*`", literal.group(0)))
+                    position = literal.end()
+            elif text[label.start()] == "`":
+                opening, closing = closers[label.start()]
+                position = label.end()
+                if closing is not None:
+                    spans.append((opening, closing))
+                    position = closing
+            elif text[label.start()] == "[":
+                position = label.start()
+                break
+            else:
+                position = label.end()
+                if text[position:position + 1] == "(":
+                    parsed = _link_target(text, position + 1, False)
+                    if parsed is not None:
+                        position = parsed[1]
+                break
+        else:
+            position = len(text)
+    output = []
+    position = 0
+    for opening, closing in spans:
+        output.append(text[position:opening])
+        output.append(re.sub(r"[^\r\n]", " ", text[opening:closing]))
+        position = closing
+    output.append(text[position:])
+    return "".join(output)
 
 
 def _root(ctx):
@@ -134,8 +305,8 @@ def _link_target(text, start, reference):
 
 def _targets(text):
     masked = _mask_fenced(text)
-    masked = re.sub(r"`[^`\n]*`", lambda match: " " * len(match.group(0)), masked)
     masked = masked.replace("\r\n", "\n").replace("\r", "\n")
+    masked = _mask_code_spans(masked)
     position = 0
     while match := _LINK.search(masked, position):
         position = match.end()

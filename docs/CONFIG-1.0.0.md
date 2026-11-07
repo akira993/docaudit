@@ -1042,17 +1042,26 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
   `orphan: skipped`.
 
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
-documents from that check. Links inside code fences, or between two backticks on
-the same line, are ignored; a code span delimited by two or more backticks, or
-one that spans lines, is not recognized, so links in it may be checked. An
+documents from that check. Links inside code fences or code spans delimited by
+equal-length backtick runs are ignored, including spans across nonblank lines.
+An escaped backtick outside code does not open a span. Spans stop at blank lines
+or new blocks (headings, list items, quotes, thematic breaks, setext underlines,
+or paragraph-interrupting HTML blocks);
+an ATX heading ends at its line ending, while paragraph, list-item, and same-depth
+quote continuations may continue a span. Some block boundaries, including HTML
+content and nested fences until a blank line and indented code blocks,
+conservatively limit spans to one line as in 1.8.0.
+Backticks in valid link destinations
+and titles remain literal. An
 optional Markdown link title is not part of the target. Link targets may
 be angle-bracketed. Destinations and titles support CommonMark 0.31.2 forms
 (balanced parentheses with up to 32 nested pairs, backslash-escaped parentheses,
 spaces in `<...>`, and double-quoted, single-quoted, or parenthesized titles).
 Link text and titles may span nonblank lines; permitted separating whitespace
 may contain one line ending, but destinations cannot contain line endings.
-Nested square brackets in link text and reference definitions indented by four
-or more spaces (including inside lists) are not extracted. Entity and numeric
+Nested square brackets in link text, reference definitions indented by four
+or more spaces (including inside lists), and reference definitions following
+list or quote markers are not extracted. Entity and numeric
 character references in destinations (for example `&amp;`) are kept literal
 rather than decoded. Fragment and
 query parts are discarded; empty, `http:`, `https:`, `mailto:`, and `tel:`
