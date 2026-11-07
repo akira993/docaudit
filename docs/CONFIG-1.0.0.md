@@ -284,11 +284,12 @@ there still fails the whole report closed. A repository-relative path that itsel
 matches this safety rule (for example an email-shaped filename) therefore still
 fails closed; rename that file to publish a report.
 
-Non-null document judgements are recorded in history independently of a report
+`L-DOC` PASS, WARN, and FAIL judgements are recorded in history independently of a report
 receipt only when the gate is not REFUSED, the ledger verifies, their identity is
 bound to the sealed scope (impacted path, snapshot content hash, verdict and
-summary shape), and their path passes report safety. `judgementsSkipped` on the
-outcome records the number not recorded and is absent when zero. Their summaries
+summary shape), all judgement checks pass, and their path passes report safety.
+Any judgement check failure records no judgements. `judgementsSkipped` on the
+outcome counts the `L-DOC` PASS, WARN, and FAIL judgements not recorded and is absent when zero. Their summaries
 and evidence use the same redaction as reports; the evidence ledger and agent
 judgement files remain original. Judgements from undecided runs participate in
 flip and focused-profile regression selection, while REFUSED runs record none.
@@ -621,8 +622,10 @@ identifies the refusal. The selected or default profile is checked against
 include `backend-invalid` for a `--backend` value other than `agy`,
 `codex`, or `claude`, `fast-requires-codex` for `--fast` without
 `--backend codex`, and `accept-baseline-requires-full` for
-`--accept-baseline` without `--full`. An unsupported platform can return
-`io-unsupported-platform`. Resume refusals before the transition to running
+`--accept-baseline` without `--full`. A missing `fcntl.F_GETPATH` returns `io-unsupported-platform` with a null
+`runId`: status 3 for `audit` and `resume`, but status 4 for `migrate` that
+reaches writes (simulated on macOS by removing `fcntl.F_GETPATH`; not run on a
+Linux machine). Resume refusals before the transition to running
 include `run-not-found`, `run-closed`, `resume-in-progress`, and `mutex-timeout`;
 a timeout while opening a run also returns 3 with a null `runId`. For
 engine-handled interruptions after a run opens or a resume starts, status 4
@@ -652,7 +655,11 @@ status 0 means `migrated` or `unchanged`. `migration-source-missing` and
 `migration-run-open` use status 3; every other migration rejection uses status
 4. Full migration rejections use `nextAction: "abort"`. Only migrate results
 may additionally expose `config`, `counts`, `inputs`, `anchor`, and `runOpen`.
-These migration statuses are separate from the run lifecycle meanings above.
+Migration creates no run, and its handled results omit `runId`; an unhandled
+write-guard rejection such as missing `fcntl.F_GETPATH` instead reaches the CLI's
+status 4 handler and returns `io-unsupported-platform` with `runId: null`. `runOpen`
+reports whether an existing open run was detected, not a migration run to resume
+or abandon. These migration statuses are separate from the run lifecycle meanings above.
 
 A Workflow handoff exits successfully while the run remains open and uses:
 
@@ -826,7 +833,12 @@ the prompt, and after the replacements no `find `, `git ls-files`,
 with `agy-prompt-invalid` and agy is not started.
 
 The output is one JSON object with `status`, `denied_actions`, and
-`structured_output`. The attempt fails with the first reason that applies:
+`structured_output`. Before any attempt, failure to create the private temporary
+directory returns `tmp-unavailable` with no `model-call` record, even if the
+prelaunch checks already found `agy-home-unset`, `agy-home-missing`, or
+`agy-prompt-invalid` (the home checks take precedence over the prompt check).
+Once the temporary directory is available and an attempt starts, the attempt
+fails with the first reason that applies:
 `agy-home-unset` or `agy-home-missing` (checked again when the call starts),
 `agy-prompt-invalid`, `launch-failed`, `cancelled`, `timeout` (960 seconds),
 `exit-<n>`, `output-too-large` (over 2 MiB), `output-not-json` (not a JSON
