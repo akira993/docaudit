@@ -159,7 +159,7 @@ The Claude Code agents backend runs the verifier agent `docaudit:doc-impact-veri
 
 ### The agy backend
 
-agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`. It is used only when every condition below holds. When one fails, agy is left out of `choices` and of the default order without a message; the reason is recorded in the run's `capability.json` (`agyReason` for the home and the tool, `agyRepoBlock` for the repository).
+agy verifies documents with the agy CLI and the model `gemini-4-hydrogen-medium`. It is used only when every condition below holds. When one fails, agy is left out of `choices` and of the default order without a message; the reason is recorded in the run's `capability.json` (`agyReason` for the home and the tool, `agyRepoBlock` for the repository).
 
 **Set up a dedicated home.**
 
@@ -206,7 +206,7 @@ agy verifies documents with the agy CLI and the model `gemini-3.8-flash-medium`.
 | `agy-version-failed` | `agy --version` failed or took longer than 20 seconds |
 | `agy-models-timeout` | `agy models` took longer than 30 seconds |
 | `agy-models-failed` | `agy models` failed or its output could not be read |
-| `agy-model-missing` | the first 1 MiB of `agy models` output has no whitespace-separated word equal to `gemini-3.8-flash-medium` |
+| `agy-model-missing` | the first 1 MiB of `agy models` output has no whitespace-separated word equal to `gemini-4-hydrogen-medium` |
 
 The audited repository is checked as well, and it is recorded as `agyRepoBlock`: `agy-repo-settings-present` when the repository has a `.gemini/antigravity-cli` entry (whatever it contains; checked first), and `agy-workspace-customizations` when it has a top-level `.agents` entry. Workspace settings and hooks can run commands from the repository's own content and can allow tools, so agy is not used on such a repository.
 

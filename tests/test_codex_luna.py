@@ -18,7 +18,7 @@ from skills.audit.engine import c_codex, c_dispatch, c_optional, deps
 
 
 SOL = "gpt-6.1-sol"
-AGY_PRIMARY = "agy:gemini-3.8-flash-medium"
+AGY_PRIMARY = "agy:gemini-4-hydrogen-medium"
 WORKFLOW_PRIMARY = "workflow:claude-sonnet-5-5"
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 SCHEMA = {
@@ -224,7 +224,7 @@ class ExtendedLayerTests(unittest.TestCase):
                 result, argvs = self._run(layer_id, AGY_PRIMARY, dict(CODEX_UP))
                 self.assertEqual(len(argvs), 1, (result.status, result.reason))
                 self.assertEqual(_flag_value(argvs[0], "-m"), SOL)
-                self.assertNotIn("gemini-3.8-flash-medium", argvs[0])
+                self.assertNotIn("gemini-4-hydrogen-medium", argvs[0])
                 self.assertEqual((result.status, result.reason), ("complete", None))
                 self.assertTrue(self.records)
                 for kind, data in self.records:

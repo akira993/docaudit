@@ -693,7 +693,7 @@ conditions as in the resolution described next, including `agyRepoBlock` for
 agy. Without `--backend`
 and `--ask-backend`, or with only one usable backend, the engine takes the
 first usable backend in the order Codex (`codex:gpt-6.1-sol`), agy
-(`agy:gemini-3.8-flash-medium`), Claude Code agents
+(`agy:gemini-4-hydrogen-medium`), Claude Code agents
 (`workflow:claude-sonnet-5-5`). With
 `--backend`, only the named backend is considered, and one that is not usable
 gives `undecided backend-unavailable`.
@@ -762,11 +762,11 @@ Workflow.
 
 ## agy document adapter
 
-For `agy:<model>`, where the model is `gemini-3.8-flash-medium`, L-DOC checks
+For `agy:<model>`, where the model is `gemini-4-hydrogen-medium`, L-DOC checks
 impacted documents in path order with at most three attempts per document and
 two concurrent calls. Each call uses `agy --input-format text --output-format
 json --print-timeout 15m --json-schema <schema-file> --model
-gemini-3.8-flash-medium --sandbox`, with the prompt on standard input and the
+gemini-4-hydrogen-medium --sandbox`, with the prompt on standard input and the
 repository root as the working directory. The engine stops waiting for a call
 after 960 seconds. The child environment holds only `PATH`, `LANG`, `LC_ALL`,
 `TMPDIR`, `HOME` (set to the value of `AGY_HOME`), and
@@ -851,7 +851,7 @@ judgement schema checks `output-type-mismatch`, `output-schema-mismatch`, and
 `identity-mismatch`. The output object, identity, failure rows, `model-call`
 records, and layer reasons are those of the Codex document adapter, with these
 differences: the judgement's `backendModel` and each record's `model` are
-`agy:gemini-3.8-flash-medium`, and an exhausted document's `failure` is
+`agy:gemini-4-hydrogen-medium`, and an exhausted document's `failure` is
 `{"reason": <last attempt's reason>, "attempts": <attempts>}`. When every
 document fails with `tmp-unavailable` the layer reason is `tmp-unavailable`;
 otherwise a failed document gives `backend-failed`.

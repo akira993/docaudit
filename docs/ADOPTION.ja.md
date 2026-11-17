@@ -157,7 +157,7 @@ Claude Code の agent backend は判定役の agent `docaudit:doc-impact-verifie
 
 ### agy backend
 
-agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します。下の条件がすべて成り立つときだけ使われます。1 つでも欠けると、agy は何も表示されないまま `choices` と既定の順から外れ、理由は run の `capability.json` に記録されます（ホームと道具については `agyReason`、リポジトリについては `agyRepoBlock`）。
+agy は agy CLI と model `gemini-4-hydrogen-medium` で文書を検証します。下の条件がすべて成り立つときだけ使われます。1 つでも欠けると、agy は何も表示されないまま `choices` と既定の順から外れ、理由は run の `capability.json` に記録されます（ホームと道具については `agyReason`、リポジトリについては `agyRepoBlock`）。
 
 **専用ホームを用意する。**
 
@@ -204,7 +204,7 @@ agy は agy CLI と model `gemini-3.8-flash-medium` で文書を検証します�
 | `agy-version-failed` | `agy --version` が失敗した、または 20 秒を超えた |
 | `agy-models-timeout` | `agy models` が 30 秒を超えた |
 | `agy-models-failed` | `agy models` が失敗した、または出力を読めなかった |
-| `agy-model-missing` | `agy models` の出力の先頭 1 MiB を空白で区切った語に `gemini-3.8-flash-medium` がない |
+| `agy-model-missing` | `agy models` の出力の先頭 1 MiB を空白で区切った語に `gemini-4-hydrogen-medium` がない |
 
 監査対象のリポジトリも調べ、`agyRepoBlock` に記録します。リポジトリに `.gemini/antigravity-cli` がある場合（中身は問いません。先に調べます）は `agy-repo-settings-present`、最上位に `.agents` がある場合は `agy-workspace-customizations` です。workspace の設定や hook は、リポジトリ自身の内容から command を実行でき、道具を許可することもできるため、そのようなリポジトリでは agy を使いません。
 

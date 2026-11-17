@@ -37,7 +37,7 @@ CAPABILITY_FIELDS = (
     "workflowAvailable", "workflowReason",
 )
 SECRET = "fixture-private-login-token"
-MODEL = "gemini-3.8-flash-medium"
+MODEL = "gemini-4-hydrogen-medium"
 DENY_HOOK_NAME = "docaudit-deny-tools"
 ALLOWED_TOOLS = ("view_file", "list_dir", "find_by_name", "grep_search", "finish")
 MATCHER = "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$"
@@ -74,13 +74,13 @@ INIT_TOOLS = (
     "write_to_file",
 )
 GOOD_MODELS = (
-    "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
-    "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n"
-    "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
+    "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n"
+    "gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)\n"
+    "gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)\n"
 )
 OTHER_MODELS = (
-    "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
-    "gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\n"
+    "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n"
+    "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n"
 )
 
 
