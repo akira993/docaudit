@@ -2,7 +2,7 @@
 
 Names the engine change must provide (chosen by these tests):
   c_dispatch.adapter               -> routes a manifest "agy:<model>" to c_agy before the codex: check
-  c_agy.AGY_MODEL                  -> "gemini-3.8-flash-medium"
+  c_agy.AGY_MODEL                  -> "gemini-4-hydrogen-medium"
   c_agy.AGY_PRINT_TIMEOUT          -> "15m"
   c_agy.AGY_DOC_TIMEOUT_SEC        -> 960 (outer limit, longer than the 15 minute print timeout)
   c_agy.AGY_CONCURRENCY            -> 2
@@ -33,7 +33,7 @@ from skills.audit.engine import c_cap, c_codex, c_dispatch, c_tmp
 from skills.audit.engine.c_evidence import EvidenceRejected
 
 
-MODEL = "gemini-3.8-flash-medium"
+MODEL = "gemini-4-hydrogen-medium"
 RESOLVED = "agy:" + MODEL
 RUN_ID = "run-fixture"
 
@@ -319,7 +319,7 @@ class AgyDispatchTests(AgyFixture):
         },))
         self.assertEqual([kind for kind, _ in ctx["_records"]], ["model-call"])
         record = ctx["_records"][0][1]
-        self.assertEqual(record["model"], "agy:gemini-3.8-flash-medium")
+        self.assertEqual(record["model"], "agy:gemini-4-hydrogen-medium")
         self.assertEqual((record["callSeq"], record["attempt"], record["role"], record["docId"], record["path"]),
                          (3, 1, "judge", "docs/a.md", "docs/a.md"))
         self.assertEqual((record["exit"], record["timedOut"], record["valid"], record["reason"], record["confirmed"]),
