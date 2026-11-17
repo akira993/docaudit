@@ -985,8 +985,10 @@ replaced by a symlink, or a symlink in its parent directories closes the run as
 Verifiers use targeted repository searches and Read and
 report `retrievalUsed: grep`. Metrics retain retrieval method and health.
 The gate still ignores the repository's top-level `.mdq/`; it is not an index
-created by this version. Close earlier open runs with the earlier engine before
-upgrading. Cleanup of old external indexes remains available:
+created by this version. This exclusion is planned for removal in 2.0.0. Delete
+a leftover `.mdq/` directory before then: after the removal its files are
+ordinary documents and changed paths again. Close earlier open runs with the
+earlier engine before upgrading. Cleanup of old external indexes remains available:
 
 Older temporary index directories carry an ownership marker `owner.json` with
 `{"repo": sha256(repo root realpath), "runId": "..."}`. After a run is opened,
