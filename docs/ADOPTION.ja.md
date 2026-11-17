@@ -163,14 +163,14 @@ agy は agy CLI と model `gemini-4-hydrogen-medium` で文書を検証します
 
 1. 空のディレクトリを作り、engine を動かす環境で `AGY_HOME` にそれを指定します。例: `mkdir "$HOME/.agy-docaudit"` のあと `export AGY_HOME="$HOME/.agy-docaudit"`。`AGY_HOME` は必須です。未設定、または存在するディレクトリでなければ agy は使われません（ホームが無いと agy 自身が作ってしまうので、先にディレクトリを作ってください）。docaudit は agy を起動するたびに `HOME` を `AGY_HOME` に差し替え、それ以外は `PATH`・`LANG`・`LC_ALL`・`TMPDIR`・`AGY_CLI_DISABLE_AUTO_UPDATE=true` だけを渡すので、普段使いの agy のログイン・設定・plugin は使われません。
 2. そのホームでログインします。`HOME="$AGY_HOME" agy` で agy を起動し、求められたら sign in して終了します。docaudit は代わりにログインしません。`AGY_HOME` の `.gemini/antigravity-cli/antigravity-oauth-token` があり読めることを確認するだけです。
-3. 道具の制限（hook）を置きます。agy の Web 検索は権限設定では止まらないため、docaudit は、file を読む・探す 5 つの道具（`view_file`・`list_dir`・`find_by_name`・`grep_search`・`finish`）以外のすべての道具を拒否する hook を必須にしています。先に `mkdir -p "$AGY_HOME/.gemini/config"` を実行し、`AGY_HOME` の `.gemini/config/hooks.json` に、次の内容をそのまま置いてください。
+3. 道具の制限（hook）を置きます。agy の Web 検索は権限設定では止まらないため、docaudit は、file を読む・探す 6 つの道具（`view_file`・`read_file`・`list_dir`・`find_by_name`・`grep_search`・`finish`）以外のすべての道具を拒否する hook を必須にしています。agy 1.5.10 は file を `read_file` で読み、それより前の版は `view_file` で読んでいたので、両方を許可しています。先に `mkdir -p "$AGY_HOME/.gemini/config"` を実行し、`AGY_HOME` の `.gemini/config/hooks.json` に、次の内容をそのまま置いてください。
 
 ```json
 {
   "docaudit-deny-tools": {
     "PreToolUse": [
       {
-        "matcher": "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
+        "matcher": "^(?:|[^fglrv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|r(?:|[^e].*|e(?:|[^a].*|a(?:|[^d].*|d(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+)))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
         "hooks": [
           {
             "type": "command",

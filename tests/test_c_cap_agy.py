@@ -39,8 +39,8 @@ CAPABILITY_FIELDS = (
 SECRET = "fixture-private-login-token"
 MODEL = "gemini-4-hydrogen-medium"
 DENY_HOOK_NAME = "docaudit-deny-tools"
-ALLOWED_TOOLS = ("view_file", "list_dir", "find_by_name", "grep_search", "finish")
-MATCHER = "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$"
+ALLOWED_TOOLS = ("view_file", "read_file", "list_dir", "find_by_name", "grep_search", "finish")
+MATCHER = "^(?:|[^fglrv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|r(?:|[^e].*|e(?:|[^a].*|a(?:|[^d].*|d(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+)))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$"
 COMMAND = (
     "printf '%s' '{\"decision\":\"deny\",\"reason\":"
     "\"docaudit: this tool is disabled while judging documents\"}'"
@@ -66,10 +66,12 @@ INIT_TOOLS = (
     "command_status", "define_subagent", "delete_knowledge",
     "execute_browser_javascript", "find_by_name", "finish", "generate_image",
     "grep_search", "invoke_subagent", "list_browser_pages", "list_dir",
-    "list_permissions", "list_resources", "manage_inbox", "manage_subagents",
+    "list_permissions", "list_plugin_accounts", "list_resources", "manage_inbox",
+    "manage_subagents",
     "manage_task", "multi_replace_file_content", "notebook_edit", "notebook_execution",
     "open_browser_url", "read_browser_page", "read_resource", "read_url_content",
-    "replace_file_content", "run_command", "schedule", "search_web", "sed_file",
+    "replace_file_content", "run_command", "run_workflow", "schedule",
+    "search_marketplace", "search_web", "sed_file",
     "send_command_input", "send_message", "view_file", "wait", "wait_5_seconds",
     "write_to_file",
 )
@@ -532,6 +534,25 @@ class AgyRepoBlockTests(unittest.TestCase):
             self.assertIsNone(c_cap.agy_repo_block(root))
 
 
+def _complement_matcher(allowed):
+    def node(prefix_set, depth):
+        # prefix_set: allowed names sharing the first `depth` chars
+        ends = [n for n in prefix_set if len(n) == depth]
+        longer = [n for n in prefix_set if len(n) > depth]
+        firsts = sorted({n[depth] for n in longer})
+        alts = []
+        if not ends:
+            alts.append("")              # stopping here is not an allowed name -> deny
+        if firsts:
+            alts.append("[^" + "".join(firsts) + "].*")
+        else:
+            return "(?:.+)" if ends else None
+        for c in firsts:
+            alts.append(c + node([n for n in longer if n[depth] == c], depth + 1))
+        return "(?:" + "|".join(alts) + ")"
+    return "^" + node(sorted(allowed), 0) + "$"
+
+
 class HookDocumentTests(unittest.TestCase):
     def test_canonical_document_equals_the_verified_block(self):
         self.assertEqual(c_cap.AGY_HOOKS_DOCUMENT, CANONICAL)
@@ -540,8 +561,8 @@ class HookDocumentTests(unittest.TestCase):
         block = c_cap.AGY_HOOKS_DOCUMENT[DENY_HOOK_NAME]
         return block["PreToolUse"][0]["matcher"]
 
-    def test_matcher_denies_every_init_tool_except_the_five_allowed(self):
-        self.assertEqual(len(INIT_TOOLS), 57)
+    def test_matcher_denies_every_init_tool_except_the_allowed(self):
+        self.assertEqual(len(INIT_TOOLS), 60)
         matcher = self._matcher()
         for name in INIT_TOOLS:
             with self.subTest(name):
@@ -554,12 +575,16 @@ class HookDocumentTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertIsNone(re.fullmatch(matcher, name))
 
+    def test_matcher_is_the_complement_of_the_allowed_tools(self):
+        self.assertEqual(_complement_matcher(ALLOWED_TOOLS), MATCHER)
+
     def test_matcher_denies_lookalike_and_future_names(self):
         matcher = self._matcher()
         for name in (
             "view_files", "view_fil", "finish2", "finis", "View_file",
             "xview_file", "grep_search2", "list_dir_", "find_by_nam",
-            "find_by_name2", "brand_new_tool",
+            "find_by_name2", "read_files", "read_fil", "Read_file",
+            "xread_file", "read_file2", "read-file", "brand_new_tool",
         ):
             with self.subTest(name):
                 self.assertIsNotNone(re.fullmatch(matcher, name))

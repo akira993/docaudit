@@ -165,14 +165,14 @@ agy verifies documents with the agy CLI and the model `gemini-4-hydrogen-medium`
 
 1. Create an empty directory and point `AGY_HOME` at it in the environment the engine runs in, for example `mkdir "$HOME/.agy-docaudit"` and `export AGY_HOME="$HOME/.agy-docaudit"`. `AGY_HOME` is required: if it is unset, or is not an existing directory, agy is not used (create the directory first, because agy itself would create a missing home). docaudit starts every agy process with `HOME` replaced by `AGY_HOME` and with only `PATH`, `LANG`, `LC_ALL`, `TMPDIR` and `AGY_CLI_DISABLE_AUTO_UPDATE=true` besides, so your everyday agy login, settings and plugins are not used.
 2. Sign in inside that home: start agy with `HOME="$AGY_HOME" agy`, sign in when it asks, and quit. docaudit does not sign in for you; it checks that `.gemini/antigravity-cli/antigravity-oauth-token` exists in `AGY_HOME` and is readable.
-3. Install the tool guard. agy's web search is not stopped by permission settings, so docaudit requires a hook that denies every tool except the five that read and search files (`view_file`, `list_dir`, `find_by_name`, `grep_search`, `finish`). Run `mkdir -p "$AGY_HOME/.gemini/config"`, then create `.gemini/config/hooks.json` in `AGY_HOME` with exactly this content:
+3. Install the tool guard. agy's web search is not stopped by permission settings, so docaudit requires a hook that denies every tool except the six that read and search files (`view_file`, `read_file`, `list_dir`, `find_by_name`, `grep_search`, `finish`). agy 1.5.10 reads files with `read_file` and earlier versions used `view_file`, so both are allowed. Run `mkdir -p "$AGY_HOME/.gemini/config"`, then create `.gemini/config/hooks.json` in `AGY_HOME` with exactly this content:
 
 ```json
 {
   "docaudit-deny-tools": {
     "PreToolUse": [
       {
-        "matcher": "^(?:|[^fglv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
+        "matcher": "^(?:|[^fglrv].*|f(?:|[^i].*|i(?:|[^n].*|n(?:|[^di].*|d(?:|[^_].*|_(?:|[^b].*|b(?:|[^y].*|y(?:|[^_].*|_(?:|[^n].*|n(?:|[^a].*|a(?:|[^m].*|m(?:|[^e].*|e(?:.+)))))))))|i(?:|[^s].*|s(?:|[^h].*|h(?:.+))))))|g(?:|[^r].*|r(?:|[^e].*|e(?:|[^p].*|p(?:|[^_].*|_(?:|[^s].*|s(?:|[^e].*|e(?:|[^a].*|a(?:|[^r].*|r(?:|[^c].*|c(?:|[^h].*|h(?:.+)))))))))))|l(?:|[^i].*|i(?:|[^s].*|s(?:|[^t].*|t(?:|[^_].*|_(?:|[^d].*|d(?:|[^i].*|i(?:|[^r].*|r(?:.+))))))))|r(?:|[^e].*|e(?:|[^a].*|a(?:|[^d].*|d(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+)))))))))|v(?:|[^i].*|i(?:|[^e].*|e(?:|[^w].*|w(?:|[^_].*|_(?:|[^f].*|f(?:|[^i].*|i(?:|[^l].*|l(?:|[^e].*|e(?:.+))))))))))$",
         "hooks": [
           {
             "type": "command",
