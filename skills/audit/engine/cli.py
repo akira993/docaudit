@@ -24,6 +24,10 @@ def parser() -> argparse.ArgumentParser:
     scope.add_argument("--full", action="store_true")
     scope.add_argument("--profile", choices=profile_names())
     scope.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
+    precheck = sub.add_parser("precheck")
+    precheck.add_argument("--full", action="store_true")
+    precheck.add_argument("--profile", choices=profile_names())
+    precheck.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     resume = sub.add_parser("resume")
     resume.add_argument("run_id")
     resume.add_argument("--repo-root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
@@ -56,6 +60,17 @@ def main(argv=None) -> int:
         from . import c_scope
         try:
             output = c_scope.preview(args.repo_root, full=args.full, profile=args.profile)
+            code = 0
+        except Exception as exc:
+            output = {"nextAction": "abort", "runId": None, "outcome": None,
+                      "reason": getattr(exc, "reason", type(exc).__name__)}
+            code = 3
+        print(json.dumps(output, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+        return code
+    if args.command == "precheck":
+        from . import c_precheck
+        try:
+            output = c_precheck.preview(args.repo_root, full=args.full, profile=args.profile)
             code = 0
         except Exception as exc:
             output = {"nextAction": "abort", "runId": None, "outcome": None,
