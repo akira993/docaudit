@@ -25,6 +25,14 @@ def run_subprocess(argv, **kwargs):
     return subprocess.run(argv, **kwargs)
 
 
+def run_subprocess_until_timeout(argv, **kwargs):
+    """Run a command, returning None if it exceeds its timeout."""
+    try:
+        return run_subprocess(argv, **kwargs)
+    except subprocess.TimeoutExpired:
+        return None
+
+
 def _kill_group(process: subprocess.Popen, sig: int) -> None:
     try:
         os.killpg(process.pid, sig)
