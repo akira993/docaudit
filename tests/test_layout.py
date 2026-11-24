@@ -32,6 +32,14 @@ class LayoutTests(unittest.TestCase):
             "skills/audit/engine/c_migrate.py",
             "tests/test_c_migrate.py",
             "tests/test_p5_acceptance.py",
+            "skills/audit/present.md",
+            "skills/audit/engine/c_precheck.py",
+            "skills/preflight/SKILL.md",
+            "skills/audit/engine/c_update.py",
+            "skills/update/SKILL.md",
+            "hooks/hooks.json",
+            "tests/test_cli_precheck.py",
+            "tests/test_update.py",
         ]
         for path in paths:
             self.assertTrue((root / path).exists(), path)
