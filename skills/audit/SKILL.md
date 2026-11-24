@@ -3,13 +3,13 @@ name: audit
 description: Run the documentation audit engine with a selected profile.
 argument-hint: "[focused|standard|extended] [--full] [--accept-baseline] [--profile focused|standard|extended] [--backend agy|codex|claude] [--fast]"
 ---
-`python3 -B "$CLAUDE_SKILL_DIR/engine" audit --ask-backend $ARGUMENTS` を実行する。
+`python3 -B "${CLAUDE_SKILL_DIR}/engine" audit --ask-backend $ARGUMENTS` を実行する。
 stdout の最終行にある `nextAction` JSON だけを次の制御に使う。起動し直した場合も同じ。
 `choose-backend` なら、質問用の道具で `choices` をそのまま選択肢に出す（先頭を推奨とする）。
-答えがあれば `python3 -B "$CLAUDE_SKILL_DIR/engine" audit --backend <backend> $ARGUMENTS` を実行する（`fast` が true なら `--fast` も付ける）。
+答えがあれば `python3 -B "${CLAUDE_SKILL_DIR}/engine" audit --backend <backend> $ARGUMENTS` を実行する（`fast` が true なら `--fast` も付ける）。
 答えずに閉じられたら、`choices` の先頭の `backend` で同じコマンドを実行する。
-質問用の道具が使えない、または拒否されたら、`python3 -B "$CLAUDE_SKILL_DIR/engine" audit $ARGUMENTS` を実行する。
-`invoke-workflow` の間は `Workflow({name: "docaudit:docaudit-verify", args: {runId, requestPath}})`、続けて `python3 -B "$CLAUDE_SKILL_DIR/engine" resume <runId>` を実行する。
-この組を最大 3 回繰り返し、超えたら `python3 -B "$CLAUDE_SKILL_DIR/engine" resume <runId> --abandon` を実行する。
-`done` または `abort` なら outcome、reason、reportPath の要約を表示して終了する。
+質問用の道具が使えない、または拒否されたら、`python3 -B "${CLAUDE_SKILL_DIR}/engine" audit $ARGUMENTS` を実行する。
+`invoke-workflow` の間は `Workflow({name: "docaudit:docaudit-verify", args: {runId, requestPath}})`、続けて `python3 -B "${CLAUDE_SKILL_DIR}/engine" resume <runId>` を実行する。
+この組を最大 3 回繰り返し、超えたら `python3 -B "${CLAUDE_SKILL_DIR}/engine" resume <runId> --abandon` を実行する。
+`done` または `abort` なら、`${CLAUDE_SKILL_DIR}/present.md` の決まりに従って outcome、reason、reportPath を利用者に分かりやすく伝え、終了する。
 この skill の手順では、本文に列挙したコマンド以外を実行しない。`done`／`abort`（`undecided`・`REFUSED` を含む）の要約を表示したら、追加の調査コマンド（`git status` 等）を実行せず skill の手順を終える。この決まりは skill の手順だけに当てはまり、その後に利用者が頼んだ作業には当てはまらない。

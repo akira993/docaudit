@@ -645,6 +645,12 @@ class SkillTests(unittest.TestCase):
         )
         self.assertIn('Workflow({name: "docaudit:docaudit-verify"', skill)
 
+    def test_skill_uses_presentation_guide_with_braced_skill_dir(self):
+        skill = SKILL.read_text(encoding="utf-8")
+        self.assertTrue(SKILL.with_name("present.md").is_file())
+        self.assertIn("${CLAUDE_SKILL_DIR}/present.md", skill)
+        self.assertNotIn("$CLAUDE_SKILL_DIR", skill)
+
 
 if __name__ == "__main__":
     unittest.main()
