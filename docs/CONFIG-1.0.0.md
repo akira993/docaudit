@@ -61,7 +61,7 @@ either list their ignored location in `worktree.tolerateChangesIn` or move
 their output outside the working tree. Listing a location changes only the
 gate's decision; it does not permit the engine to write there.
 
-For `corpus.docGlobs`, like `.git/`, files under the repository's top-level `.mdq/` are neither documents nor changed paths from 1.0.1 onward.
+The fixed tool-directory exclusion is the repository's top-level `.git/`. Since 2.0.0, files under the top-level `.mdq/` are eligible as documents and changed paths under the ordinary scope rules. To allow a tool to write there during an audit, add `.mdq/` to Git's ignore rules and set `worktree.tolerateChangesIn: [".mdq/"]`, subject to the eligibility rules above.
 
 ## Old-key disposition
 
@@ -226,7 +226,9 @@ a full run with an unreadable anchor continues without a baseline, while
 later recording follows the existing rules. A history line has `seq`, `ts`,
 `kind`, `runId`, and object `data`. Known kinds are `outcome`, `judgement`,
 `flip`, `anchor`, `legacy`, and `migration`; unknown kinds are retained and
-ignored.
+ignored. The identity used to detect a `flip` includes `contractVersion`, which
+remains `1.0` in docaudit 2.0.0, so a flip for the same document across the
+upgrade may reflect the added `<external>` criterion or output checks.
 
 An outcome event has optional `acceptBaseline: true` only when `--accept-baseline`
 was applied to a full `NEEDS_FIX` run whose blocking items are all `L-DOC`
@@ -244,6 +246,19 @@ History is append-only and read one line at a time. A malformed line, envelope,
 or sequence makes it `history-corrupt` and prevents reads and writes. Recovery
 is outside the engine: preserve valid lines through the final valid line under a
 different name, then begin a new history file.
+
+### Update state
+
+Update state is separate from repository run state, under
+`${CLAUDE_CONFIG_DIR:-~/.claude}/docaudit-update/`.
+
+| path | contents |
+|---|---|
+| `settings.json` | opt-in `notify` boolean |
+| `last-check.json` | last source, check time, tag and comparison, with `reason` after a failed fetch |
+| `history.jsonl` | replacement start and completion records with install and backup paths, version and commit information, and verification results where available |
+| `versions/` | Original install directories moved aside during replacement. If recovery from a failed rollback moves the candidate out of the install path, it returns to its original path here. |
+| `staging/` | Candidates prepared for apply. If recovery from a failed apply moves the candidate out of the install path, it returns here. |
 
 ## Report templates and publication
 
@@ -332,7 +347,7 @@ for the full catalogue of kinds the engine writes.
 
 ## Engine run directory
 
-The read-only `scope` command prints the same `scope.json` structure to stdout, including `changed`, `impacted`, and per-document `provenance` (`self` and `regression` included). It creates no run directory, state directory, report, or run records.
+The read-only `scope` command prints the same `scope.json` structure to stdout, including `changed`, `impacted`, and per-document `provenance` (`self` and `regression` included). It creates no run directory, state directory, report, or run records. `precheck` uses the same scope and returns built-in project findings without creating those files or directories.
 
 Each run is stored below `.claude/state/docaudit/runs/<runId>/`. The engine
 owns these files:
@@ -409,7 +424,7 @@ without its file repeats the stage. A complete but mismatched evidence line is
 `evidence-tampered`; an incomplete final line is ignored as
 `evidence-truncated` and its layer is repeated.
 
-A restored scope that names a path under a tool directory such as `.mdq/` (a run opened by 1.0.0) is a semantic mismatch.
+A restored scope that names a path under the fixed tool directory `.git/` is a semantic mismatch. A saved scope keeps the document candidates it had when created.
 
 Report publication records `rendered` before `write-begin`, then publishes,
 records `write-end`, and finally records `reported`. If the final report already
@@ -474,11 +489,15 @@ Atomic and exclusive writes use the deterministic sibling
 it successfully. State-root temporary files are recovered immediately after a
 lease is acquired. The worktree digest excludes the frozen final and temporary
 write paths, but records every other entry regardless of Git ignore rules,
-including entries under `worktree.tolerateChangesIn`. Toleration affects the
-gate's decision, not the snapshot. The fixed tool-directory exclusions are the
-repository's top-level `.git/` and, since 1.0.1, `.mdq/` (legacy tool output);
-1.0.0 excluded only `.git/`. The excluded tool directories are a fixed list in
-the engine and may grow in later versions.
+including entries under `worktree.tolerateChangesIn`. The fixed tool-directory
+exclusion is the repository's top-level `.git/`. From 2.0.0, Git-ignored
+regular files outside the listed locations are recorded as
+`meta:<mode>:<size>:<mtime_ns>:<ino>:<ctime_ns>` without reading their
+contents. They count toward the 200,000-entry limit. The 4 GiB content limit
+counts the bytes read for hashing. The scan still hashes regular files in
+listed locations, tracked files, non-ignored untracked files, and all regular
+files when Git is unavailable. An ignored file rewritten with identical bytes
+can trigger `worktree-modified` when a recorded timestamp changes.
 
 Within a listed location, a file that disappears during scanning is omitted
 from that snapshot. A file that cannot be read or changes while being read is
@@ -542,7 +561,8 @@ Gate applies these checks in order:
 7. worktree changes outside the listed, Git-ignored, unsealed paths give
    `REFUSED worktree-modified`; `worktreeDiff` lists only those paths. A
    digest mismatch without a recoverable path difference still refuses with
-   an empty list. If the scan exceeds an entry or byte limit, the outcome is
+   an empty list. If the scan exceeds the 200,000-entry limit or reads more
+   than 4 GiB of file contents for hashing, the outcome is
    `undecided worktree-too-large`;
 8. an out-of-scope, duplicate, stale-content, or invalid document judgement
    gives `REFUSED judgement-mismatch`;
@@ -573,7 +593,15 @@ outcomes do publish a report. Scope calculation uses `corpus-unreadable:<path>`
 with the unreadable path. When `worktree.tolerateChangesIn` is non-empty,
 corpus validation can instead reject with that reason before opening a run
 (exit status 3). Report rendering shows the REFUSED reason and
-`refusedChecks`, or the undecided reason, under `## 判定`. When paths were
+`refusedChecks`, or the undecided reason, under `## 判定`. After the verdict
+and any reason and refused checks, that section always adds these two lines:
+
+```text
+- 文書の判定の数: PASS n、WARN n、FAIL n、判定なし n
+- 文書以外の所見の数: n
+```
+
+When paths were
 tolerated, it adds `- 大目に見た作業木の変化: <count> 件` and, if any paths are safe to
 display, `- 大目に見た path（先頭 <k> 件）: <path1>, ...` for up to the first five.
 For `worktreeDiffIgnoredOnly: true`, it adds a guidance line with both
@@ -598,7 +626,28 @@ overwrite a report. A `tmp-conflict` is recorded as undecided
 
 `python3 ~/.claude/skills/docaudit/skills/audit/engine scope --repo-root /path/to/repo` previews the scope using the same configuration, anchor, history, and profile selection as `audit`. It accepts `--full`, `--profile focused|standard|extended`, and `--repo-root` with the same defaults as `audit`, but no positional profile. Success prints one JSON object in the `scope.json` structure and exits 0; calculation or configuration refusal prints the pre-run refusal JSON (`nextAction: abort`, null `runId` and `outcome`, and `reason`) and exits 3. It opens no run, takes no lease or mutex, writes no repository, state, or report files or directories, invokes no model or external backend CLI, and performs no worktree integrity check.
 
-The final stdout line is one JSON object. A closed or aborted operation uses:
+`precheck` accepts the same flags and uses the same read-only calculation as
+`scope`. A successful check exits 0 with one JSON object:
+
+| field | meaning |
+|---|---|
+| `profileName`, `mode` | selected profile and full or incremental mode |
+| `anchor` | selected anchor's run ID, or null |
+| `changed` | list of changed paths |
+| `impacted` | list of objects containing each impacted document's `path` and `provenance` |
+| `projectLayer` | whether the selected plan enables `L-PROJECT` |
+| `checks` | built-in findings from across the corpus, or an empty list when `projectLayer` is false |
+| `projectChecksSkipped` | number of configured project checks left unrun when `projectLayer` is true, otherwise 0 |
+| `warnings` | warnings from the scope calculation |
+
+It runs no configured `projectChecks`, opens no run, takes no run lock,
+writes no repository or audit state, and invokes no model or external backend
+CLI. A calculation or configuration refusal uses the same JSON shape as
+`scope` and exits 3. Invalid arguments, including a positional profile,
+exit 2 and print usage to standard error.
+
+For audit and resume, the final stdout line is one JSON object. A closed or
+aborted operation uses:
 
 ```json
 {"nextAction":"done|abort","runId":"...","outcome":"...","reason":"...","reportPath":"..."}
@@ -624,7 +673,8 @@ include `backend-invalid` for a `--backend` value other than `agy`,
 `--backend codex`, and `accept-baseline-requires-full` for
 `--accept-baseline` without `--full`. A platform without descriptor-relative
 `os.replace` is refused before any command with status 3,
-`io-unsupported-platform`, and `runId: null`. A missing `fcntl.F_GETPATH` returns `io-unsupported-platform` with a null
+`io-unsupported-platform`, and `runId: null`. The exception is a valid
+`update check --hook`, which exits 0 without output on such a platform. A missing `fcntl.F_GETPATH` returns `io-unsupported-platform` with a null
 `runId`: status 3 for `audit` and `resume`, but status 4 for `migrate` that
 reaches writes (simulated on macOS by removing `fcntl.F_GETPATH`; not run on a
 Linux machine). With `--ask-backend`, no `--backend`, and at least two usable backends, `audit` returns the `choose-backend` question first with status 0. Resume refusals before the transition to running
@@ -698,6 +748,52 @@ first usable backend in the order Codex (`codex:gpt-6.1-sol`), agy
 `--backend`, only the named backend is considered, and one that is not usable
 gives `undecided backend-unavailable`.
 
+
+### Update commands and results
+
+The update interface accepts `update check`, `update notify on|off`,
+`update plan [--to vX.Y.Z]`, `update apply --to vX.Y.Z`, and
+`update rollback [--dry-run]`. All accept `--source` and `--install-dir`
+before or after the subcommand. The default source is this plugin's repository
+and the default install directory is the plugin containing the engine. A plan
+without a target selects the latest numeric `vX.Y.Z` tag.
+
+Update's normal result is a JSON object with `outcome` (`success` or
+`failed`) and, when applicable, `reason`. Command-specific fields appear
+when available:
+
+| command | fields |
+|---|---|
+| `check` | `installed`, `latest`, `newer`, `checkedAt`, `source` |
+| `notify` | `notify` |
+| `plan` | `source`, `installed`, `target`, `targetCommit`, `notes`, `log`, `diffstat` |
+| `apply` and `rollback` | `from`, `to`, `targetCommit`, `installDir`, `asideDir`, `stagingDir`, `checks` |
+| `rollback --dry-run` | `from`, `to`, `asideDir`, `checks` |
+| prerequisite failures | `installDir`, `installed`, `target`, or rollback details, depending on the failure |
+
+A handled CLI exception can use the abort envelope above. The process exits 0
+on success, 2 for invalid arguments with usage on standard error, or 3 for
+a failed prerequisite or a rejection by the plugin-name or filesystem check
+(for example, `update-marketplace-install`, `update-filesystem`,
+`update-plugin-name-mismatch`, or `staging-plugin-name`). Status 4 is the
+default for other failures, including retrieval, verification, moving or
+restoring the install, writing history, unavailable temporary storage
+(`tmp-unavailable`), and unexpected exceptions. A valid `update check --hook`
+invocation always exits 0 and prints either nothing
+or one hook JSON line with `systemMessage` and `hookSpecificOutput`
+(`hookEventName: SessionStart` and `additionalContext`). The hook is defined
+in `hooks/hooks.json`. When opted in, it fetches tags at most once per source
+in 24 hours, including after a failed fetch.
+
+`notify`, `apply`, and `rollback` wait up to 15 seconds for the update lock.
+`check` and an enabled hook take the lock without waiting. `plan` and a
+`rollback` without an existing update state directory take no update lock.
+`apply` and `rollback` require a skills-dir install, a separate state
+directory, and a matching candidate plugin name when verifying a replacement.
+`check` and `plan` read
+the installed manifest without applying those prerequisites. Update reasons
+and recovery steps are listed in [the adoption guide](ADOPTION.md#update-reasons).
+
 ## Codex document adapter
 
 For `codex:<model>`, L-DOC checks impacted documents in path order with at most
@@ -713,11 +809,76 @@ call uses `codex exec -s read-only --ephemeral --ignore-user-config
 `backendSelection.fast` is true, for every Codex call of the run. The prompt is supplied from a private file;
 it names the relative target, provenance, mode, up to 100 changed paths, and an
 identity containing only run ID and relative path. It instructs the model to
-judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. A copy found only inside an ignored nested checkout (a directory with its own .git file or directory, such as a worktree under .worktrees/) is not treated as the file existing elsewhere or as the wrong-path location. The prompt contains neither the content hash, document bytes, nor private absolute paths.
+judge the document content against the current repository state, citing repository-relative evidence only; a resource outside the repository is outside the audit scope, not missing. Before reporting a repository path as missing, the model searches recursively, including hidden directories, and reports a path found elsewhere as a wrong path. A copy found only inside an ignored nested checkout (a directory with its own .git file or directory, such as a worktree under .worktrees/) is not treated as the file existing elsewhere or as the wrong-path location. The prompt specifies the line numbers to copy and how to supply the copied lines
+and quotations. Its verdict criteria include `<external>`, which judges claims
+about tools outside the repository only using evidence of their behavior in
+the repository. It counts claims without that evidence in U and forbids
+inferring the behavior from configuration or imports alone. When testing a
+documented command, the verifier is told to reproduce it exactly and disregard
+failures caused by quoting or escaping it added. The prompt contains neither
+the content hash, document bytes, nor private absolute paths.
 
-The output object has exactly `runId`, `path`, `verdict`, `rationale`, and
-`evidence`. Verdict is `PASS`, `WARN`, or `FAIL`; evidence is a string array.
-File kind, size, JSON, keys, field types, and identity are checked in that order.
+The output object has exactly seven fields, `runId`, `path`, `verdict`,
+`rationale`, `evidence`, `readBack`, and `docQuote`. Verdict is `PASS`,
+`WARN`, or `FAIL`. `evidence` and `docQuote` are string arrays and
+`readBack` is an array of `{line, text}` objects, with an integer line
+number and a string.
+
+The engine checks file kind, size, and JSON, then validates all keys and field
+types in one schema check. If that check fails and all fields besides
+`readBack` and `docQuote` are valid, a missing or malformed `readBack` gives
+`document-unread`, including when `docQuote` is also malformed. With a valid
+`readBack`, a missing `docQuote` for FAIL gives `quote-not-in-document`.
+Other schema failures keep their original reason. After a successful schema
+check, a nonempty `docQuote` for PASS or WARN gives `output-schema-mismatch`.
+The engine then checks identity (`identity-mismatch`), followed by read-back
+(`document-unread`) and quotation matching (`quote-not-in-document`).
+
+The quotation check confirms that the text occurs in the document, with no
+minimum length beyond nonblank text and no check that it supports the claim,
+so a verifier can quote accurately and still misread the passage. Read-back
+checks the requested lines and leaves the rest of the document unchecked by
+this test.
+
+The engine selects up to three lines per document, ranking candidates
+deterministically from `runId`, `path`, and `contentHash`. Line numbers start
+at 1 and follow LF. The engine removes one UTF-8 BOM at the start of the file
+and strips trailing CR from each line. Candidates contain 20–200 characters
+after trimming leading and trailing spaces, tabs, CR, and U+3000. Indented
+lines can qualify. After trimming, the engine excludes lines that contain a
+tab, start with three backticks or tildes, or consist only of separators such
+as repeated punctuation, table separators, or heading markers. It also
+excludes
+lines with a backslash, at least two consecutive U+0020 spaces, curly quotation
+marks, Unicode `Cf` characters, or `Zs` characters other than U+0020 and
+U+3000. It excludes lines that change under NFC normalization or contain
+characters in any of these ranges: U+0300–U+036F, U+1AB0–U+1AFF, U+1DC0–U+1DFF,
+U+20D0–U+20FF, U+FE20–U+FE2F, U+3099–U+309A, U+180B–U+180F, U+FE00–U+FE0F, and
+U+E0100–U+E01EF. Lines with script-specific combining marks in Thai,
+Devanagari, Arabic, Hebrew, or other scripts remain candidates if no
+exclusion applies. The verifier copies each requested line with its number.
+The engine removes all leading U+FEFF characters from the returned text, then
+trims spaces, tabs, CR, and U+3000 from both ends before comparing it
+character for character with the document line trimmed of the same
+whitespace. With no qualifying lines, the engine requests none and requires
+an empty `readBack` array, so the check cannot confirm that any text was read.
+
+For FAIL, the verifier supplies one or more quotations. The engine removes
+all leading U+FEFF characters from each quotation, then trims surrounding
+whitespace. If any quotation becomes empty, the attempt fails with
+`quote-not-in-document`. Each trimmed quotation must occur as a substring of
+one line in the document. For PASS and WARN, the verifier supplies an empty
+`docQuote` array. If the engine cannot read the document as UTF-8 when it
+selects lines, whether due to decoding (including a single malformed byte)
+or a read refusal, it requests no lines and requires an empty `readBack`
+array. With the text unavailable, the engine applies the quotation
+requirements for the verdict without comparing quotations to the document.
+
+Failed read-back or quotation checks count as failed attempts. If all three
+fail, the document has no verdict, the run ends `undecided backend-failed`,
+and the anchor stays in place. The engine leaves `readBack` and `docQuote`
+out of the judgement row, history, and report and stores attempt reasons in
+the `model-call` records.
 An exhausted document remains as a judgement with null verdict and summary,
 the sealed content hash and backend model, and `failure {reason, attempts}`.
 Such a row is still identity-checked, makes an incomplete adapter undecided,
@@ -822,9 +983,11 @@ Its matcher accepts every tool name except `find_by_name`, `finish`,
 adds later are denied too. A tool denied by the hook does not run, is not
 reported in the JSON output, and is not a failure.
 
-The prompt is the Codex judge prompt with three sentence-level replacements,
-because agy refuses every shell command and a refusal fails the whole judgement:
-the instruction to use read-only commands becomes an instruction to run no
+The agy prompt starts from the Codex judge prompt and keeps the `<external>`
+criterion and instructions for copied lines and quotations. It removes the
+command-testing instruction and makes three sentence-level replacements
+because agy refuses every shell command and a refusal fails the whole judgement.
+The instruction to use read-only commands becomes an instruction to run no
 shell or terminal command and to use only file-reading, directory-listing and
 file-search tools; the `find` example becomes a reference to those tools; and the
 `git ls-files` and `git check-ignore` steps become a statement that git tracking
@@ -847,8 +1010,14 @@ fails with the first reason that applies:
 object), `agy-status` (`status` is not `SUCCESS`), `agy-denied` (a non-empty
 `denied_actions`, even with an answer), `structured-output-missing` (no object
 in `structured_output`; the 15 minute print timeout ends here), and then the
-judgement schema checks `output-type-mismatch`, `output-schema-mismatch`, and
-`identity-mismatch`. The output object, identity, failure rows, `model-call`
+judgement schema checks (`output-type-mismatch` or `output-schema-mismatch`,
+with `document-unread` or `quote-not-in-document` for the proof-field
+exceptions above), including the empty quotation requirement for PASS and WARN.
+Next come `identity-mismatch`, then the read-back and quotation checks
+(`document-unread` and `quote-not-in-document` in that order). See the
+[Codex document adapter](#codex-document-adapter) for the shared output rules,
+how lines and quotations are checked, and the limits of those checks.
+The output object, identity, failure rows, `model-call`
 records, and layer reasons are those of the Codex document adapter, with these
 differences: the judgement's `backendModel` and each record's `model` are
 `agy:gemini-4-hydrogen-medium`, and an exhausted document's `failure` is
@@ -874,8 +1043,10 @@ The engine writes `R/requests/request-<k>.json` before waiting. It has exactly
 these fields:
 
 ```json
-{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","deterministicLinksChecked":true|false,"judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
+{"runId":"...","requestSeq":1,"attempt":1,"model":"...","documents":[{"docId":"...","path":"docs/example.md","provenance":["mapped"],"contentHash":"...","deterministicLinksChecked":true|false,"readBackLines":[2,5],"judgementPath":".claude/state/docaudit/runs/<runId>/requests/1/judgements/<docId>.json"}],"retrieval":{"method":"grep","indexDb":null,"indexCwd":null,"indexLang":null,"fallback":"grep"},"donePath":".claude/state/docaudit/runs/<runId>/requests/request-1.done","changed":[],"mode":"full|incremental","createdAt":"..."}
 ```
+
+`readBackLines` is required for each document and lists the one-based line numbers to copy. It is empty when no lines are requested.
 
 `deterministicLinksChecked` is true only when L-PROJECT is enabled in this run and the document does not match `documentChecks.layerGlobs.links`.
 
@@ -893,21 +1064,41 @@ The Workflow script itself does not read or write files. It receives only
 path begins with `R/requests/`. A reader agent reads the request and returns it
 under a schema; a mismatched run ID or empty document array stops the Workflow.
 One verifier agent per document writes its assigned judgement and returns the
-same structured value. After the parallel verifiers finish, a closer agent
+same structured value. Its criteria include `<external>`, its instructions
+specify how to copy requested lines and FAIL quotations, and its command tests
+must reproduce the documented characters without treating failures caused by
+added quoting or escaping as mismatches. After the parallel verifiers finish, a closer agent
 writes the completion record from their non-null returns.
 
 Each verifier writes its assigned judgement path. A judgement is at most
 1 MiB and has exactly the required keys `runId`, `requestSeq`, `attempt`,
-`docId`, `path`, `verdict`, `rationale`, and `evidence`; the only optional key is
-`retrievalUsed`. `verdict` is `PASS`, `WARN`, or `FAIL`, `evidence` is a string
-array, and `retrievalUsed`, when present, is `index` or `grep`. Validation order
-is fixed: regular-file kind and size; UTF-8 JSON object; exact required and
-optional key set; field types; then equality of run ID, generation, attempt,
-document ID, and path with the assigned request row. A document ID outside the
-request is rejected as `not-requested`; an earlier generation or attempt is
-rejected as `stale-request`. A valid judgement becomes a result containing
-`path`, `verdict`, `summary` from `rationale`, `contentHash`, the sealed
-`workflow:<model>` backend, and `evidence`.
+`docId`, `path`, `verdict`, `rationale`, `evidence`, `readBack`, and
+`docQuote`. The only optional key is `retrievalUsed` (`index` or `grep`
+when present). The verdict is `PASS`, `WARN`, or `FAIL`. `evidence` and
+`docQuote` are string arrays and `readBack` is an array of `{line, text}`
+objects.
+
+Validation checks regular-file kind and size, then a UTF-8 JSON object,
+then the key set. Missing `readBack` or `docQuote` is deferred past the key
+check. The engine checks field types except for `readBack` (`type-mismatch`),
+then the assigned document ID (`not-requested`), generation and attempt
+(`stale-request`), and run ID and path (`identity-mismatch`). For PASS or
+WARN, a nonempty `docQuote` or a missing `docQuote` when all other required keys
+are present gives `schema-mismatch`. Last come read-back matching, including
+missing or malformed `readBack` (`document-unread`), and quotation matching
+(`quote-not-in-document`). See the
+[Codex document adapter](#codex-document-adapter) for the shared line selection,
+text matching, and limits of both checks.
+
+A valid judgement becomes a result containing `path`, `verdict`, `summary`
+from `rationale`, `contentHash`, the sealed `workflow:<model>` backend,
+and `evidence`. The engine leaves `readBack` and `docQuote` out of the
+judgement row, history, and report. Failed checks use the usual retry path.
+If the document is still unresolved after the third request, the run ends
+`undecided external-incomplete` and the anchor stays in place. The judgement
+has failure reason `external-invalid` for a rejected proof. The attempt's
+specific reason appears in the receipt's `rejected` entries and in the
+`model-call` record.
 
 After all verifiers return, the closer writes
 `R/requests/request-<k>.done`:
@@ -984,11 +1175,12 @@ replaced by a symlink, or a symlink in its parent directories closes the run as
 `undecided` with reason `corpus-unreadable`.
 Verifiers use targeted repository searches and Read and
 report `retrievalUsed: grep`. Metrics retain retrieval method and health.
-The gate still ignores the repository's top-level `.mdq/`; it is not an index
-created by this version. This exclusion is planned for removal in 2.0.0. Delete
-a leftover `.mdq/` directory before then: after the removal its files are
-ordinary documents and changed paths again. Close earlier open runs with the
-earlier engine before upgrading. Cleanup of old external indexes remains available:
+2.0.0 removed the top-level `.mdq/` exclusion introduced in 1.0.1.
+Its files now follow the ordinary rules for documents, worktree snapshots, and
+changed paths. Move obsolete output out of the repository if it should be
+outside the scan. Before upgrading, finish or abandon open runs with the
+earlier engine. Start a new audit to include eligible `.mdq/` documents in
+scope. Cleanup of old external indexes remains available:
 
 Older temporary index directories carry an ownership marker `owner.json` with
 `{"repo": sha256(repo root realpath), "runId": "..."}`. After a run is opened,
@@ -1001,7 +1193,7 @@ an outcome.
 
 ## Workflow launcher
 
-The launcher first runs `python3 -B "$CLAUDE_SKILL_DIR/engine" audit
+The launcher first runs `python3 -B "${CLAUDE_SKILL_DIR}/engine" audit
 --ask-backend $ARGUMENTS` and reads only its final JSON line. `audit` accepts an
 optional positional profile or `--profile`; if both are given they must match,
 and if neither is given the profile is selected automatically. For
@@ -1012,10 +1204,14 @@ is closed without an answer it uses the backend of the first choice; if the
 question tool is unavailable or refused it runs `audit $ARGUMENTS`. While
 `nextAction` is `invoke-workflow`, it
 invokes `Workflow({name: "docaudit:docaudit-verify", args: {runId,
-requestPath}})` and then runs `python3 -B "$CLAUDE_SKILL_DIR/engine" resume
+requestPath}})` and then runs `python3 -B "${CLAUDE_SKILL_DIR}/engine" resume
 <runId>`. It repeats that pair at most three times. If the limit is exceeded it
-runs `resume <runId> --abandon`. For `done` or `abort`, it displays the outcome,
-reason, and report path that are present and stops.
+runs `resume <runId> --abandon`. For `done` or `abort`, it follows
+`skills/audit/present.md`: lead with the conclusion, give the reason and report
+path when present, copy the two count lines from the report when available,
+list FAIL and WARN documents in a table, identify any unjudged documents in
+the report, and give next steps. The braced `${CLAUDE_SKILL_DIR}` form is the
+one Claude Code substitutes in the skill.
 
 ## Private temporary storage
 

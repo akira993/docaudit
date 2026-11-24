@@ -1,7 +1,7 @@
 {
   "name": "docaudit",
-  "version": "1.9.0",
-  "description": "Documentation audits use run profiles, sealed manifests, a single deterministic gate, and report-only output.",
+  "version": "2.0.0",
+  "description": "Report-only documentation audits with run profiles and sealed results, pre-audit fixes with approval, and plugin updates.",
   "homepage": "https://github.com/akira993/docaudit",
   "repository": "https://github.com/akira993/docaudit",
   "license": "MIT",

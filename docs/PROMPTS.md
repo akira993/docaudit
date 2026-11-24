@@ -2,7 +2,7 @@
 
 日本語版: [PROMPTS.ja.md](PROMPTS.ja.md)
 
-Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full`, `--accept-baseline` (only together with `--full`), `--profile focused|standard|extended`, `--backend agy|codex|claude` and `--fast` (only together with `--backend codex`). Everything the audit reports is read-only: docaudit never edits a document, so fixing what it finds is a separate step that you ask for explicitly.
+Copy-paste prompts for running docaudit inside Claude Code. Each one names the outcome you should expect, so you can tell a normal result from a problem. The skill is `/docaudit:audit`; its options are `--full`, `--accept-baseline` (only together with `--full`), `--profile focused|standard|extended`, `--backend agy|codex|claude` and `--fast` (only together with `--backend codex`). The audit is report-only. To review and apply approved document fixes before an audit, use the separate `/docaudit:preflight` skill.
 
 The skill also accepts a positional profile: `/docaudit:audit standard` is equivalent to `/docaudit:audit --profile standard`; `focused` and `extended` work the same way. If both forms are given, their values must match or parsing exits with status 2. With neither form, the profile is selected automatically.
 
@@ -19,6 +19,8 @@ Run /docaudit:audit --full in this repository. When it finishes, open the publis
 Expected: `NEEDS_FIX` or `CONSISTENT`. On the first run of a corpus `NEEDS_FIX` is normal. The evidence ledger remains original, while history judgements are redacted. `undecided backend-unavailable` occurs when no `--backend` is named and capability detection finds no usable backend (outside Claude Code without a working Codex CLI or a set-up agy), or when the backend named with `--backend` cannot be used, including inside Claude Code. An `undecided` run that ends before verification starts (such as `backend-unavailable`) publishes no report, so there is nothing to open in that case. If the run stays `NEEDS_FIX` only because of document judgements, `/docaudit:audit --full --accept-baseline` writes the anchor from that run; fix any other blocking finding first.
 
 ## 2. Fix what the first audit found, then repeat
+
+Use this prompt to follow up on a published audit report. To check documents and approve fixes before opening an audit, run `/docaudit:preflight --full` instead. After preflight, start the audit separately.
 
 ```
 Open the last docaudit report at the `reportPath` printed in the audit's JSON result line (it follows `report.path` in this repository's configuration). For each failing document, show me the mismatch and the code it contradicts, then propose the smallest documentation edit that makes the document correct. Apply the edits I approve, and nothing else. Then run /docaudit:audit --full again.
@@ -69,10 +71,10 @@ Expected: the dry run writes nothing and exits 0 with `convertible` (the target 
 ## 7. Understand an undecided or REFUSED result
 
 ```
-The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 1.9.0 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
+The last /docaudit:audit ended with outcome <undecided|REFUSED> and reason <reason>. Explain what that reason means for docaudit 2.0.0 using docs/CONFIG-1.0.0.md from the plugin directory, tell me whether the anchor moved, and tell me what to run next. Do not change any file.
 ```
 
-Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full` with the same profile if that run selected one (positionally or with `--profile`)), `worktree-modified` (read `worktreeDiff`; stop the writer and rerun, or, when the report gives `worktreeDiffIgnoredOnly` guidance, list an eligible Git-ignored location in `worktree.tolerateChangesIn` or move the output outside the working tree), `worktree-too-large` (reduce the tree's entry or byte count and rerun), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).
+Expected: an explanation and a next step. Common cases: `anchor-missing` (run `--full` with the same profile if that run selected one (positionally or with `--profile`)), `worktree-modified` (read `worktreeDiff`; stop the writer and rerun, or, when the report gives `worktreeDiffIgnoredOnly` guidance, list an eligible Git-ignored location in `worktree.tolerateChangesIn` or move the output outside the working tree), `worktree-too-large` (reduce the number of tree entries, including Git-ignored entries, or reduce the bytes in files whose contents are hashed if the size limit is the cause, then rerun), `config-drift` (the configuration changed during the run; run again), `run-awaiting-external` or `run-interrupted-resume-required` (an earlier run is still open; see prompt 8).
 
 ## 8. Resume or abandon a run left open
 

@@ -2,7 +2,7 @@
 
 English: [PROMPTS.md](PROMPTS.md)
 
-Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。skill は `/docaudit:audit`、オプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended`、`--backend agy|codex|claude`、`--fast`（`--backend codex` と併用する場合だけ）です。監査の報告はすべて読み取り専用で、docaudit が文書を編集することはありません。見つかった問題を直すのは別の作業で、明示的に依頼します。
+Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。`/docaudit:audit` のオプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended`、`--backend agy|codex|claude`、`--fast`（`--backend codex` と併用する場合だけ）です。監査は報告専用です。監査前に文書の修正案を確認して適用するには、`/docaudit:preflight` を使います。承認した箇所だけが修正されます。
 
 skill は位置引数の profile も受け付けます。`/docaudit:audit standard` は `/docaudit:audit --profile standard` と同じで、`focused`・`extended` も同様です。両方を指定するときは同じ値にする必要があり、異なると解析は終了値 2 で失敗します。どちらも指定しなければ profile は自動選択されます。
 
@@ -19,6 +19,8 @@ skill は位置引数の profile も受け付けます。`/docaudit:audit standa
 期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は、`--backend` を指名せず Claude Code の外で Codex CLI も設定済みの agy も使えない場合、または `--backend` で指名した backend を使えない場合に起きます。後者は Claude Code の中でも起きます。検証の開始前に `undecided` で終わった run（`backend-unavailable` など）は report を公開しないので、その場合は開く report がありません。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
 
 ## 2. 最初の監査の指摘を直して、もう一度
+
+公開済みの監査報告をもとに修正を依頼するプロンプトです。監査を始める前に文書を点検し、修正案を承認する場合は `/docaudit:preflight --full` を実行します。点検が終わったら、監査は別に実行してください。
 
 ```
 最新の docaudit report は、監査の JSON 結果行の `reportPath`（このリポジトリの設定の `report.path` に従う）にある。失敗した文書ごとに、食い違いとそれが矛盾しているコードを見せて、文書を正しくする最小の編集を提案して。私が承認した編集だけを適用して、それ以外は触らないで。その後 /docaudit:audit --full をもう一度実行して。
@@ -69,10 +71,10 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 ## 7. undecided や REFUSED の結果を理解する
 
 ```
-直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 1.9.0 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
+直前の /docaudit:audit が outcome <undecided|REFUSED>、reason <reason> で終わった。plugin ディレクトリの docs/CONFIG-1.0.0.md を使って、docaudit 2.0.0 でこの理由が何を意味するか説明し、anchor が動いたかどうかと、次に何を実行すべきかを教えて。file は変更しないで。
 ```
 
-期待: 説明と次の一手。よくある場合: `anchor-missing`（その run が profile を指定していた場合は位置引数または `--profile` で同じ profile を指定し、`--full` で実行）、`worktree-modified`（`worktreeDiff` を確認する。書込み元を止めて再実行するか、report に `worktreeDiffIgnoredOnly` の案内があれば、対象となる Git が無視する場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移す）、`worktree-too-large`（作業木の entry 数か byte 数を減らして再実行）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
+期待: 説明と次の一手。よくある場合: `anchor-missing`（その run が profile を指定していた場合は位置引数または `--profile` で同じ profile を指定し、`--full` で実行）、`worktree-modified`（`worktreeDiff` を確認する。書込み元を止めて再実行するか、report に `worktreeDiffIgnoredOnly` の案内があれば、対象となる Git が無視する場所を `worktree.tolerateChangesIn` に書くか、書き出し先を作業木の外へ移す）、`worktree-too-large`（Git が無視する項目も含めて作業木の項目数を減らす。容量の上限に達した場合は、中身からハッシュ値を計算するファイルの容量を減らす。その後、再実行する）、`config-drift`（run 中に設定が変わった。再実行）、`run-awaiting-external` または `run-interrupted-resume-required`（前の run が開いたまま。例 8 を参照）。
 
 ## 8. 開いたままの run を再開または放棄する
 
