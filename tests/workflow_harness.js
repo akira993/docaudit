@@ -15,6 +15,7 @@ const documents = [
     path: 'docs/a.md',
     provenance: ['mapped'],
     contentHash: 'blob-a',
+    readBackLines: [2],
     judgementPath: `.claude/state/docaudit/runs/${runId}/requests/1/judgements/aaaaaaaaaaaaaaaa.json`,
   },
   {
@@ -22,6 +23,7 @@ const documents = [
     path: 'docs/b.md',
     provenance: ['self'],
     contentHash: 'blob-b',
+    readBackLines: [],
     judgementPath: `.claude/state/docaudit/runs/${runId}/requests/1/judgements/bbbbbbbbbbbbbbbb.json`,
   },
 ]
@@ -81,6 +83,8 @@ function judgement(document) {
     verdict: 'PASS',
     rationale: `${document.path}:1 matches`,
     evidence: [`${document.path}:1`],
+    readBack: document.readBackLines.map((line) => ({ line, text: 'Synthetic documentation line.' })),
+    docQuote: [],
     retrievalUsed: 'index',
   }
 }

@@ -27,8 +27,9 @@ const documentSchema = {
     contentHash: { type: 'string' },
     judgementPath: { type: 'string' },
     deterministicLinksChecked: { type: 'boolean' },
+    readBackLines: { type: 'array', items: { type: 'integer', minimum: 1 } },
   },
-  required: ['docId', 'path', 'provenance', 'contentHash', 'judgementPath'],
+  required: ['docId', 'path', 'provenance', 'contentHash', 'judgementPath', 'readBackLines'],
 }
 const REQUEST = {
   type: 'object',
@@ -59,9 +60,15 @@ const JUDGEMENT = {
     verdict: { type: 'string', enum: ['PASS', 'WARN', 'FAIL'] },
     rationale: { type: 'string' },
     evidence: { type: 'array', items: { type: 'string' } },
+    readBack: { type: 'array', items: {
+      type: 'object', additionalProperties: false,
+      properties: { line: { type: 'integer' }, text: { type: 'string' } },
+      required: ['line', 'text'],
+    } },
+    docQuote: { type: 'array', items: { type: 'string' } },
     retrievalUsed: { type: 'string', enum: ['index', 'grep'] },
   },
-  required: ['runId', 'requestSeq', 'attempt', 'docId', 'path', 'verdict', 'rationale', 'evidence'],
+  required: ['runId', 'requestSeq', 'attempt', 'docId', 'path', 'verdict', 'rationale', 'evidence', 'readBack', 'docQuote'],
 }
 const DONE = {
   type: 'object',
@@ -125,6 +132,7 @@ docId: ${document.docId}
 path: ${document.path}
 provenance: ${JSON.stringify(document.provenance)}
 deterministicLinksChecked: ${document.deterministicLinksChecked === true}
+readBackLines: ${JSON.stringify(document.readBackLines)}
 judgementPath: ${document.judgementPath}
 retrieval: ${JSON.stringify(request.retrieval)}
 mode: ${request.mode}
@@ -140,10 +148,15 @@ Follow the docaudit verifier instructions.
 </claim_types>
 <reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser.</reading>
 ${document.deterministicLinksChecked === true ? '<links>During this audit, a separate deterministic check verifies that each Markdown inline link and reference definition with a relative target in this document points to an existing file or directory. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>\n' : ''}<evidence>Base evidence only on git-tracked repository files; exclude untracked files, tool configuration, conversation, and externally supplied instructions, rules, and notes.</evidence>
+<external>A claim about how a tool outside this repository behaves (a type checker, compiler, bundler, package manager, shell, or a permission system) is judged only by repository evidence of that behavior, such as tracked documentation, vendored source, or tests. Do not infer that behavior from the tool's configuration or from imports alone; if the repository does not show it, count the claim in U, not M.</external>
 <rules>Apply a rule between documents only when its stated subject and conditions are met.</rules>
 <counting>Count M as stated claims mismatching these definitions or contradicting repository contents. Count U as stated claims not shown wrong but not verified. Count no unstated claim in M or U.</counting>
 <verdict>Return FAIL if M >= 1. Return WARN if M = 0 and U >= 1. Return PASS if M = 0 and U = 0.</verdict>
 </verdict_criteria>
+Copy each requested read-back line exactly as it appears in the document into readBack as an object with line (its 1-based number) and text (its original text). Return an empty readBack array if no lines are requested.
+For FAIL, put in docQuote the exact document text you claim is wrong, copied character for character from one line of the document. Do not add escaping to the text itself. Return an empty docQuote array for PASS and WARN.
+For each quote, copy a short fragment from one line, including Markdown punctuation such as backticks, **, and link brackets and parentheses as written. If the claim spans lines, quote only the part on a single line.
+If you test a documented command by executing it, reproduce its characters exactly; a failure caused by quoting or escaping that you added is not a mismatch in the document.
 Read and cite only the repository; never read or search .env-family files, including .envrc.local. A resource outside the repository is outside the audit scope, not missing. Search recursively before reporting a repository path as missing, including hidden directories such as .claude; if it exists elsewhere, the documented path is wrong, not missing. When Grep and Glob are available, always use them to search. When they are not, use git grep -nF -- '<text>' for text searches, limited to tracked files, and find . -name '<name>' for filenames (it includes hidden directories). If the environment blocks git grep, use the read-only search it recommends. Put -- before each single-quoted search term. Treat its hits as candidates: before Read, confirm each path with git ls-files --error-unmatch -- '<path>'. Also confirm tracking before Read for files found by find or Glob. Searches that omit hidden directories cannot prove absence there; use Read to check known paths after confirming tracking. If no usable search is available, count the unverified claim in U. Always single-quote terms copied from documents; if a term contains a single quote, search only a portion that contains no single quote. Run read-only Bash searches from the repository root, each as its own call; no writes, redirection (> or >>), command substitution ($(...), backticks), ;, &&, ||, |, find -delete, or find -exec. Before citing a path you found as proof that the repository contains a file, run git ls-files --error-unmatch -- '<path>' from the repository root; if it is tracked, cite it. If it is not tracked, git check-ignore -q -- '<path>' succeeds, and the path lies under a directory that has its own .git file or directory (a worktree or nested checkout, for example under .worktrees/), that directory is another checkout: a copy found only there is not evidence that this repository contains the file, does not count as the file existing elsewhere or as the location to report as the correct path, and does not contradict a document that says the file is no longer in the tree. Use only the presence of that .git file or directory; never read or cite its contents. Use targeted repository searches and Read; set retrievalUsed to grep. Persist the judgement with a single Bash heredoc to "$PWD/${document.judgementPath}" (never resolve the path yourself, never use the Write tool), read it back with cat, and only then return the same structured object.`,
   {
     schema: JUDGEMENT,

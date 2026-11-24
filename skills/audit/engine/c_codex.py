@@ -108,7 +108,7 @@ def _schema_problem(value: Any, schema: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _load_output(path: str, schema: Mapping[str, Any]):
+def _load_output(path: str, schema: Mapping[str, Any], validate_schema=_schema_problem):
     try:
         info = os.lstat(path)
     except OSError:
@@ -126,7 +126,7 @@ def _load_output(path: str, schema: Mapping[str, Any]):
         return None, "output-invalid-json", size
     if not isinstance(value, dict):
         return None, "output-invalid-json", size
-    problem = _schema_problem(value, schema)
+    problem = validate_schema(value, schema)
     if problem is not None:
         return None, problem, size
     return value, None, size
@@ -174,7 +174,7 @@ def call(
     ctx: dict[str, Any], *, prompt: str, schema: dict[str, Any],
     validate: Callable[[dict[str, Any]], str | None], role: str,
     doc_id: str | None, model: str, timeout_sec: int | float,
-    attempts: int, cancel,
+    attempts: int, cancel, validate_schema=_schema_problem,
 ):
     """Run validated attempts and durably record every process invocation."""
     root = _root(ctx)
@@ -239,7 +239,7 @@ def call(
                 elif result.get("exit") != 0:
                     reason = "exit-" + str(result.get("exit"))
                 else:
-                    value, reason, output_bytes = _load_output(output_path, schema)
+                    value, reason, output_bytes = _load_output(output_path, schema, validate_schema)
                     if value is not None:
                         reason = validate(value)
                 data = {

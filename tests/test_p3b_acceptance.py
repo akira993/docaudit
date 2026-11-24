@@ -23,7 +23,7 @@ from skills.audit.engine import (
     procs,
 )
 from tests.acceptance import acceptance
-from tests.fixtures import fake_mdq, init_repo, simulate_external
+from tests.fixtures import document_proof, fake_mdq, init_repo, simulate_external
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +138,7 @@ def _write_old_judgement(repo: Path, request, document):
         "evidence": [f"{document['path']}:1"],
         "retrievalUsed": request["retrieval"]["method"],
     }
+    value.update(document_proof(repo / document["path"], document["readBackLines"], value["verdict"]))
     target = repo / document["judgementPath"]
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")

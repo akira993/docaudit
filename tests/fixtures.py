@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -198,11 +199,32 @@ def legacy_repo(root: Path, *, entries: int, with_last_run: bool) -> dict:
     return {"config": config, "entries": history_entries, "lastRun": last_run}
 
 
+def document_proof(path: Path, requested, verdict):
+    lines = path.read_bytes().decode("utf-8-sig").split("\n") if requested or verdict == "FAIL" else []
+    return {
+        "readBack": [{"line": line, "text": lines[line - 1]} for line in requested],
+        "docQuote": [next(line for line in lines if line.strip())] if verdict == "FAIL" else [],
+    }
+
+
 def fake_codex_tools(root: Path):
     """Create a shell-based Codex fixture, PATH symlink, and private home."""
     binary_root = root / "fixture-tools"; path_dir = binary_root / "bin"; home = binary_root / "codex-home"
     path_dir.mkdir(parents=True); home.mkdir(); (home / "auth.json").write_text("fixture-auth", encoding="utf-8")
     real = binary_root / "codex-real"
+    write_judgement = "\n".join((
+        "import json, sys",
+        "from pathlib import Path",
+        "out, requested_json, run_id, path, target, verdict, rationale, mode = sys.argv[1:]",
+        "requested = json.loads(requested_json)",
+        "lines = Path(target).read_bytes().decode('utf-8-sig').split('\\n') if requested or verdict == 'FAIL' else []",
+        "read_back = [{'line': line, 'text': lines[line - 1]} for line in requested]",
+        "quotes = [next(line for line in lines if line.strip())] if verdict == 'FAIL' else []",
+        "evidence = 'bad' if (mode, target) == ('type', 'docs/a.md') else ['docs/a.md:1']",
+        "judgement = dict(runId=run_id, path=path, verdict=verdict, rationale=rationale,",
+        "                 evidence=evidence, readBack=read_back, docQuote=quotes)",
+        "Path(out).write_text(json.dumps(judgement), encoding='utf-8')",
+    ))
     real.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"--version\" ]; then echo 'codex fixture'; exit 0; fi\n"
@@ -231,6 +253,7 @@ def fake_codex_tools(root: Path):
         "  else printf '{\"findingId\":\"%s\",\"state\":\"confirmed\",\"evidenceFile\":\"docs/a.md\",\"evidenceLine\":1,\"rationale\":\"supported\"}' \"$finding\" > \"$out\"; fi; exit 0\n"
         "fi\n"
         "if [ \"$mode\" = metric ] && [ \"$role\" = judge ] && [ \"$path\" = docs/a.md ] && [ \"${out##*/}\" = out-1.json ]; then exit 9; fi\n"
+        "target=$path\n"
         "case \"$mode:$path\" in\n"
         " hang:*|mixedhang:docs/b.md) trap '' TERM; echo $$ >> \"$CODEX_HOME/hang-parent.pid\"; /bin/sh -c 'trap \"\" TERM; echo $$ >> \"$1\"; /bin/sleep 60' sh \"$CODEX_HOME/hang-child.pid\" & /bin/sleep 60;;\n"
         " mixedhang:docs/a.md) /bin/sleep 1;;\n"
@@ -238,10 +261,11 @@ def fake_codex_tools(root: Path):
         " large:docs/a.md) /usr/bin/head -c 2097153 /dev/zero > \"$out\"; exit 0;;\n"
         " invalid:docs/a.md) printf '{' > \"$out\"; exit 0;;\n"
         " identity:docs/a.md) path='docs/other.md';;\n"
-        " type:docs/a.md) printf '{\"runId\":\"%s\",\"path\":\"%s\",\"verdict\":\"PASS\",\"rationale\":\"docs/a.md:1 ok\",\"evidence\":\"bad\"}' \"$runid\" \"$path\" > \"$out\"; exit 0;;\n"
         "esac\n"
         "verdict=PASS; rationale='docs/a.md:1 ok'; [ \"$mode\" = fail ] && verdict=FAIL && rationale='docs/a.md:1 verdict: CONSISTENT'\n"
-        "printf '{\"runId\":\"%s\",\"path\":\"%s\",\"verdict\":\"%s\",\"rationale\":\"%s\",\"evidence\":[\"docs/a.md:1\"]}' \"$runid\" \"$path\" \"$verdict\" \"$rationale\" > \"$out\"\n",
+        "requested=$(printf '%s\\n' \"$prompt\" | /usr/bin/sed -n 's/^Read-back line numbers: //p')\n"
+        f"exec {shlex.quote(sys.executable)} -B -c {shlex.quote(write_judgement)} "
+        '"$out" "$requested" "$runid" "$path" "$target" "$verdict" "$rationale" "$mode"\n',
         encoding="utf-8",
     )
     real.chmod(0o700); (path_dir / "codex").symlink_to(real)
@@ -364,6 +388,7 @@ def simulate_external(repo: Path, run_id: str, *, behaviour: str = "normal", mdq
             "evidence": [f"{document['path']}:1"],
             "retrievalUsed": request["retrieval"]["method"],
         }
+        value.update(document_proof(repo / document["path"], document["readBackLines"], value["verdict"]))
         if behaviour == "stale-request":
             value["requestSeq"] -= 1
             value["attempt"] -= 1
