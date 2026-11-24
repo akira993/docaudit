@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+from contextlib import contextmanager
 
 from . import c_evidence, c_io, c_run, procs
 from .contract import CONTRACT_VERSION
@@ -224,8 +225,9 @@ def select_scope(repo, facts, requested_profile, mode, table, *, call=None, hist
         scope=scope_for(proposed)
     return scope,selected,source
 
-def preview(repo_root, *, full=False, profile=None):
-    """Read configuration and history without creating state or taking locks."""
+@contextmanager
+def preview_context(repo_root, *, full=False, profile=None):
+    """Resolve scope and plan without creating state or taking locks."""
     from . import c_config, c_engine, c_history, c_profile
     from .profiles import PROFILE_TABLE
     c_profile.validate_table(PROFILE_TABLE)
@@ -236,5 +238,10 @@ def preview(repo_root, *, full=False, profile=None):
         # The validated reader only reads files; its state fd is unused.
         history=c_history._read_history_locked(repo,None)
         scope,selected,_=select_scope(repo,config.facts,profile,"full" if full else "incremental",PROFILE_TABLE,history=history)
-        c_profile.resolve(PROFILE_TABLE,selected,config.capability)
+        plan=c_profile.resolve(PROFILE_TABLE,selected,config.capability)
+        yield repo,scope,config.facts,plan
+
+def preview(repo_root, *, full=False, profile=None):
+    """Read configuration and history without creating state or taking locks."""
+    with preview_context(repo_root,full=full,profile=profile) as (_,scope,_,_):
         return scope
