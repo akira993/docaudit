@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import tempfile
@@ -6,7 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from skills.audit.engine import c_evidence, c_io, deps
+from skills.audit.engine import c_evidence, c_io, deps, procs
+
+from tests.fixtures import init_repo
 
 
 def _capability(available=True):
@@ -152,26 +155,27 @@ class EvidenceTests(unittest.TestCase):
             (root / "reports" / ".tmp-out.md").write_text("changed", encoding="utf-8")
             self.assertEqual(c_evidence.tree_digest(root, ["reports/out.md"]), first)
 
-    def test_t_a_top_level_mdq_is_excluded_from_tree_digest(self):
-        """T-A: top-level .mdq changes and a .mdq file do not affect the digest."""
+    def test_t_a_top_level_mdq_is_included_in_tree_digest(self):
+        """T-A: top-level .mdq changes and a .mdq file affect the digest."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             baseline = c_evidence.tree_digest(root, [])
             usage = root / ".mdq" / "usage.jsonl"
             usage.parent.mkdir()
             usage.write_text('{"command":"search"}\n', encoding="utf-8")
-            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            created, changed = c_evidence.tree_diff(root, [], baseline)
+            self.assertEqual(changed, [".mdq", ".mdq/usage.jsonl"])
             with usage.open("a", encoding="utf-8") as stream:
                 stream.write('{"command":"get"}\n')
-            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            self.assertEqual(c_evidence.tree_diff(root, [], created)[1], [".mdq/usage.jsonl"])
             usage.unlink()
             usage.parent.rmdir()
             self.assertEqual(c_evidence.tree_digest(root, []), baseline)
             (root / ".mdq").write_text("not a directory", encoding="utf-8")
-            self.assertEqual(c_evidence.tree_digest(root, []), baseline)
+            self.assertEqual(c_evidence.tree_diff(root, [], baseline)[1], [".mdq"])
 
     def test_t_b_nested_mdq_remains_in_tree_digest(self):
-        """T-B: a nested .mdq directory is not a top-level tool directory."""
+        """T-B: changes in a nested .mdq directory affect the digest."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             baseline = c_evidence.tree_digest(root, [])
@@ -179,6 +183,17 @@ class EvidenceTests(unittest.TestCase):
             usage.parent.mkdir(parents=True)
             usage.write_text('{"command":"search"}\n', encoding="utf-8")
             self.assertNotEqual(c_evidence.tree_digest(root, []), baseline)
+
+    def test_tree_snapshot_hashes_files_outside_a_git_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text("ignored.bin\n", encoding="utf-8")
+            (root / "ignored.bin").write_bytes(b"test")
+
+            snapshot = c_evidence.tree_snapshot(root, [])
+
+            blob = hashlib.sha1(b"blob 4\0test").hexdigest()
+            self.assertEqual(snapshot["ignored.bin"], "100644:" + blob)
 
     def test_append_read_unknown_large_and_truncated_records(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -303,6 +318,124 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(c_evidence.verify_manifest(sealed(mode="incremental", acceptBaseline=True)))
         self.assertFalse(c_evidence.verify_manifest(sealed(acceptBaseline="yes")))
         self.assertFalse(c_evidence.verify_manifest(sealed(unknown=True)))
+
+
+class GitTreeSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        init_repo(self.root)
+
+    def test_ignored_file_does_not_count_toward_tree_byte_limit(self):
+        (self.root / ".gitignore").write_text("large.bin\n", encoding="utf-8")
+        large = self.root / "large.bin"
+        large.write_bytes(b"x" * 8192)
+
+        with mock.patch.object(c_evidence, "MAX_TREE_BYTES", 4096):
+            snapshot = c_evidence.tree_snapshot(self.root, [])
+
+        info = large.stat()
+        self.assertEqual(
+            snapshot["large.bin"],
+            f"meta:{info.st_mode}:{info.st_size}:{info.st_mtime_ns}:{info.st_ino}:{info.st_ctime_ns}",
+        )
+
+    def test_tracked_and_unignored_files_count_toward_tree_byte_limit(self):
+        (self.root / "large.bin").write_bytes(b"x" * 8192)
+
+        with mock.patch.object(c_evidence, "MAX_TREE_BYTES", 4096):
+            with self.subTest(tracked=False), self.assertRaisesRegex(c_evidence.EvidenceRejected, "worktree-too-large"):
+                c_evidence.tree_snapshot(self.root, [])
+            procs.run_subprocess(["git", "add", "large.bin"], cwd=self.root, check=True)
+            with self.subTest(tracked=True), self.assertRaisesRegex(c_evidence.EvidenceRejected, "worktree-too-large"):
+                c_evidence.tree_snapshot(self.root, [])
+
+    def test_ignored_file_mtime_changes_appear_in_tree_diff(self):
+        (self.root / ".gitignore").write_text("ignored.bin\n", encoding="utf-8")
+        ignored = self.root / "ignored.bin"
+        ignored.write_bytes(b"before")
+        digest = c_evidence.tree_digest(self.root, [])
+
+        for label in ("same-size rewrite", "same-content rewrite"):
+            with self.subTest(label=label):
+                info = ignored.stat()
+                ignored.write_bytes(b"change")
+                os.utime(ignored, ns=(info.st_atime_ns, info.st_mtime_ns + 2_000_000_000))
+                current, changed = c_evidence.tree_diff(self.root, [], digest)
+
+                self.assertNotEqual(current, digest)
+                self.assertEqual(changed, ["ignored.bin"])
+                digest = current
+
+    def test_ignored_file_replacement_with_restored_mtime_appears_in_tree_diff(self):
+        (self.root / ".gitignore").write_text("ignored.bin\n", encoding="utf-8")
+        ignored = self.root / "ignored.bin"
+        ignored.write_bytes(b"before")
+        info = ignored.stat()
+        digest = c_evidence.tree_digest(self.root, [])
+
+        # Allocate the replacement while the original still exists, so the inode
+        # differs even on file systems with coarse timestamp resolution.
+        replacement = self.root / "replacement.bin"
+        replacement.write_bytes(b"change")
+        replacement.replace(ignored)
+        os.utime(ignored, ns=(info.st_atime_ns, info.st_mtime_ns))
+        after = ignored.stat()
+        self.assertEqual((after.st_mode, after.st_size, after.st_mtime_ns),
+                         (info.st_mode, info.st_size, info.st_mtime_ns))
+        self.assertNotEqual(after.st_ino, info.st_ino)
+
+        current, changed = c_evidence.tree_diff(self.root, [], digest)
+
+        self.assertNotEqual(current, digest)
+        self.assertEqual(changed, ["ignored.bin"])
+
+    def test_tolerated_git_ignored_file_is_hashed(self):
+        (self.root / ".gitignore").write_text("ignored.bin\n", encoding="utf-8")
+        (self.root / "ignored.bin").write_bytes(b"test")
+
+        snapshot = c_evidence.tree_snapshot(self.root, [], tolerated=["ignored.bin"])
+
+        blob = hashlib.sha1(b"blob 4\0test").hexdigest()
+        self.assertEqual(snapshot["ignored.bin"], "100644:" + blob)
+
+    def test_force_added_file_in_ignored_directory_is_hashed(self):
+        (self.root / ".gitignore").write_text("cache/\n", encoding="utf-8")
+        cache = self.root / "cache"
+        cache.mkdir()
+        (cache / "tracked.bin").write_bytes(b"test")
+        (cache / "ignored.bin").write_bytes(b"test")
+        procs.run_subprocess(["git", "add", "-f", "cache/tracked.bin"], cwd=self.root, check=True)
+
+        snapshot = c_evidence.tree_snapshot(self.root, [])
+
+        blob = hashlib.sha1(b"blob 4\0test").hexdigest()
+        self.assertEqual(snapshot["cache/tracked.bin"], "100644:" + blob)
+        self.assertTrue(snapshot["cache/ignored.bin"].startswith("meta:"))
+
+    def test_files_below_nested_ignored_directory_use_metadata(self):
+        app = self.root / "apps" / "x"
+        module = app / "node_modules" / "example"
+        module.mkdir(parents=True)
+        (app / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        (app / "regular.txt").write_bytes(b"test")
+        (module / "index.js").write_bytes(b"test")
+
+        snapshot = c_evidence.tree_snapshot(self.root, [])
+
+        self.assertTrue(snapshot["apps/x/node_modules/example/index.js"].startswith("meta:"))
+        self.assertEqual(snapshot["apps/x/node_modules/example"], f"other:{module.stat().st_mode}")
+        self.assertTrue(snapshot["apps/x/regular.txt"].startswith("100644:"))
+
+    def test_ignored_file_counts_toward_tree_entry_limit(self):
+        (self.root / ".gitignore").write_text("ignored.bin\n", encoding="utf-8")
+        limit = len(c_evidence.tree_snapshot(self.root, []))
+        (self.root / "ignored.bin").write_bytes(b"test")
+
+        with mock.patch.object(c_evidence, "MAX_TREE_ENTRIES", limit):
+            with self.assertRaisesRegex(c_evidence.EvidenceRejected, "worktree-too-large"):
+                c_evidence.tree_snapshot(self.root, [])
 
 
 if __name__ == "__main__":

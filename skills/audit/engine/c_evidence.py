@@ -10,7 +10,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from . import c_io
+from . import c_io, procs
 from .contract import CONTRACT_VERSION
 from . import deps
 from .deps import adapter_document, capability_document
@@ -22,7 +22,7 @@ MAX_TREE_ENTRIES = 200_000
 MAX_TREE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_TREE_SNAPSHOT_BYTES = 64 * 1024 * 1024
 WORKFLOW_MAX_REQUESTS = 3
-TOOL_DIRS = (".git", ".mdq")
+TOOL_DIRS = (".git",)
 RUN_FILES = (
     "journal.jsonl",
     "config.snapshot.json",
@@ -244,16 +244,38 @@ def _regular_entry(repo: Any, rel: str, remaining: int, *, tolerated: bool = Fal
         os.close(parent)
 
 
+def _git_ignored_paths(root: str) -> set[str]:
+    try:
+        result = procs.run_subprocess(
+            ["git", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"],
+            cwd=root, stdout=-1, stderr=-1, timeout=60,
+        )
+    except (OSError, procs.subprocess.TimeoutExpired):
+        return set()
+    if result.returncode:
+        return set()
+    return {os.fsdecode(path) for path in result.stdout.split(b"\0") if path}
+
+
 def tree_snapshot(repo: Any, allowed_paths: Iterable[str], *, tolerated: Sequence[str] = ()) -> dict[str, str]:
-    """Read every repository entry except .git, .mdq, and the exact sealed outputs."""
+    """Record the worktree outside .git and the exact sealed outputs.
+
+    Use metadata for Git-ignored regular files unless the path is tolerated.
+    """
     root = _root_path(repo)
     excluded = _excluded_paths(allowed_paths)
+    ignored_paths = _git_ignored_paths(root)
     entries: dict[str, str] = {}
     total_bytes = 0
 
     for current, directories, files in os.walk(root, topdown=True, followlinks=False):
         relative_dir = os.path.relpath(current, root)
         relative_dir = "" if relative_dir == "." else relative_dir.replace(os.sep, "/")
+        # Git can collapse ignored paths into a directory ending in '/'.
+        ancestor = relative_dir
+        while ancestor and ancestor + "/" not in ignored_paths:
+            ancestor = ancestor.rpartition("/")[0]
+        ignored_directory = bool(ancestor)
         directories[:] = [
             name for name in directories
             if not is_tool_path(f"{relative_dir}/{name}" if relative_dir else name)
@@ -279,12 +301,18 @@ def tree_snapshot(repo: Any, allowed_paths: Iterable[str], *, tolerated: Sequenc
             else:
                 try:
                     if stat.S_ISREG(info.st_mode):
-                        entry, consumed = _regular_entry(
-                            repo, rel, MAX_TREE_BYTES - total_bytes, tolerated=tolerate_entry,
-                        )
-                        total_bytes += consumed
-                        if total_bytes > MAX_TREE_BYTES:
-                            raise EvidenceRejected("worktree-too-large")
+                        if not tolerate_entry and (ignored_directory or rel in ignored_paths):
+                            entry = (
+                                f"meta:{info.st_mode}:{info.st_size}:{info.st_mtime_ns}:"
+                                f"{info.st_ino}:{info.st_ctime_ns}"
+                            )
+                        else:
+                            entry, consumed = _regular_entry(
+                                repo, rel, MAX_TREE_BYTES - total_bytes, tolerated=tolerate_entry,
+                            )
+                            total_bytes += consumed
+                            if total_bytes > MAX_TREE_BYTES:
+                                raise EvidenceRejected("worktree-too-large")
                     elif stat.S_ISLNK(info.st_mode):
                         target = os.readlink(os.path.join(current, name)).encode("utf-8", "surrogateescape")
                         entry = "120000:" + sha256_bytes(target)

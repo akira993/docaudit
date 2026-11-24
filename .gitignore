@@ -4,8 +4,6 @@ __pycache__/
 .DS_Store
 .serena/
 .brv/
-# Legacy tool output remains excluded by the engine.
-.mdq/
 data/
 tasks/
 .envrc

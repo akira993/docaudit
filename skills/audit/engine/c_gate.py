@@ -295,7 +295,8 @@ def decide(
     if resolved != disk_manifest.get("resolvedBackendModel"):
         return _refused("backend-mismatch", counts)
 
-    # (7) Includes ignored paths, symlinks, modes, and arbitrarily large files.
+    # (7) Compare the worktree snapshots, using metadata for Git-ignored regular
+    # files outside the tolerated paths.
     tolerated_places = _config_snapshot.get("worktree", {}).get("tolerateChangesIn", [])
     try:
         current_digest, changed_paths = c_evidence.tree_diff(
