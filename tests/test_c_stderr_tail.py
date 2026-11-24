@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -8,7 +9,13 @@ import threading
 import unittest
 from unittest import mock
 
-from skills.audit.engine import c_agy, c_codex, procs
+from skills.audit.engine import c_agy, c_codex, c_dispatch, procs
+
+
+FIXTURE_JUDGEMENT = {
+    "runId": "fixture", "path": "a.md", "verdict": "PASS", "rationale": "",
+    "evidence": [], "readBack": [], "docQuote": [],
+}
 
 
 def _result(exit_code=1):
@@ -174,7 +181,7 @@ class StderrTailTests(unittest.TestCase):
             def successful_run_group(argv, **kwargs):
                 Path(kwargs["stderr_path"]).write_text("ignored on success")
                 output = Path(argv[argv.index("-o") + 1])
-                output.write_text("{}")
+                output.write_text(json.dumps(FIXTURE_JUDGEMENT))
                 return _result(0)
 
             with mock.patch.object(c_codex, "find_codex", return_value="codex"):
@@ -182,7 +189,7 @@ class StderrTailTests(unittest.TestCase):
                     c_codex.call(
                         _context(directory, records),
                         prompt="prompt",
-                        schema={"type": "object"},
+                        schema=c_dispatch.CODEX_OUTPUT_SCHEMA,
                         validate=lambda value: None,
                         role="judge",
                         doc_id=None,
@@ -192,6 +199,7 @@ class StderrTailTests(unittest.TestCase):
                         cancel=threading.Event(),
                     )
             self.assertNotIn("stderrTail", records[0])
+            self.assertTrue(records[0]["valid"])
 
     def test_agy_failure_adds_stderr_tail(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -224,9 +232,9 @@ class StderrTailTests(unittest.TestCase):
 
             def successful_run_group(argv, **kwargs):
                 Path(kwargs["stderr_path"]).write_text("ignored on success")
-                Path(kwargs["stdout_path"]).write_text(
-                    '{"status": "SUCCESS", "denied_actions": [], "structured_output": {}}'
-                )
+                Path(kwargs["stdout_path"]).write_text(json.dumps({
+                    "status": "SUCCESS", "denied_actions": [], "structured_output": FIXTURE_JUDGEMENT,
+                }))
                 return _result(0)
 
             context = _context(directory, records)
@@ -237,7 +245,7 @@ class StderrTailTests(unittest.TestCase):
                             c_agy.call(
                                 context,
                                 prompt="prompt",
-                                schema={"type": "object"},
+                                schema=c_dispatch.CODEX_OUTPUT_SCHEMA,
                                 validate=lambda value: None,
                                 doc_id=None,
                                 timeout_sec=5,

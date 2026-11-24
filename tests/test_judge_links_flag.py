@@ -13,6 +13,13 @@ from tests.test_c_workflow import workflow_context
 CAUSES = "<causes>Verify a stated cause or remedy in the implementation. Treat a cause as exclusive only when the document says so, for example with only, always, or the sole cause; then treat another route to the same result as a mismatch. A list of causes or remedies that does not claim to be complete is not a mismatch merely because the implementation has another route. Treat advice for an error, reason, or status as a remedy claim and check, on every route to the condition the document names, that the remedy resolves it; treat a failed or incomplete remedy as a mismatch. Do not count a route to a different condition with a similar symptom, such as a configuration error that stops before the named check runs. Do not verify such advice by name alone.</causes>"
 READING = "<reading>Read each claim in its full line and sentence, including later sentences that add a second check or a condition. Apply a document's rule only to the subject it names, not to a different component with similar behavior. A line that defers a topic to another document does not contradict that document. Cite as evidence only lines about the same subject and setting as the claim. Judge command syntax from the command's own usage text or argument parser.</reading>"
 LINKS = "<links>During this audit, a separate deterministic check verifies that each Markdown inline link and reference definition with a relative target in this document points to an existing file or directory. Do not judge whether such a target exists or how many parent directories it climbs, and do not count those questions in M or U. Still judge other links, and whether a link points to the right document or section.</links>"
+EXTERNAL = "<external>A claim about how a tool outside this repository behaves (a type checker, compiler, bundler, package manager, shell, or a permission system) is judged only by repository evidence of that behavior, such as tracked documentation, vendored source, or tests. Do not infer that behavior from the tool's configuration or from imports alone; if the repository does not show it, count the claim in U, not M.</external>"
+PROOF_INSTRUCTIONS = (
+    "Copy each requested read-back line exactly as it appears in the document into readBack as an object with line (its 1-based number) and text (its original text). Return an empty readBack array if no lines are requested.",
+    "For FAIL, put in docQuote the exact document text you claim is wrong, copied character for character from one line of the document. Do not add escaping to the text itself. Return an empty docQuote array for PASS and WARN.",
+    "For each quote, copy a short fragment from one line, including Markdown punctuation such as backticks, **, and link brackets and parentheses as written. If the claim spans lines, quote only the part on a single line.",
+)
+COMMAND_TEST_INSTRUCTION = "If you test a documented command by executing it, reproduce its characters exactly; a failure caused by quoting or escaping that you added is not a mismatch in the document."
 
 
 def criteria(prompt):
@@ -82,15 +89,34 @@ class JudgeLinksFlagTests(unittest.TestCase):
                 self.assertEqual(LINKS in prompt, checked)
                 agy_prompt = c_agy.to_agy_prompt(prompt)
                 self.assertEqual(LINKS in agy_prompt, checked)
+                self.assertEqual(criteria(agy_prompt), criteria(prompt))
 
     def test_criteria_match_agent_and_workflow_without_links(self):
         agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
         self.assertEqual(criteria(agent), c_dispatch.VERDICT_CRITERIA)
         self.assertIn(CAUSES, c_dispatch.VERDICT_CRITERIA)
         self.assertIn("</claim_types>\n" + READING + "\n<evidence>", c_dispatch.VERDICT_CRITERIA)
+        self.assertIn("</evidence>\n" + EXTERNAL + "\n<rules>", c_dispatch.VERDICT_CRITERIA)
         self.assertEqual(c_dispatch.LINKS_CRITERION, LINKS)
         self.assertIn("Only when the assigned request entry has `deterministicLinksChecked: true`", agent)
         self.assertIn("Otherwise, do not apply it:\n" + LINKS, agent)
+
+    def test_proof_instructions_match_all_judge_prompts(self):
+        agent = (self.root / "agents" / "doc-impact-verifier.md").read_text(encoding="utf-8")
+        with workflow_context() as (repo, ctx):
+            with self.assertRaises(c_workflow.ExternalWait) as wait:
+                c_workflow.adapter(ctx)
+            request = json.loads((repo / wait.exception.request_path).read_text(encoding="utf-8"))
+            item = ctx["scope"]["impacted"][0]
+            prompt = c_dispatch._prompt(ctx, item, {"runId": ctx["run_id"], "path": item["path"]})
+            workflow_prompt = self.workflow_prompts(request["documents"])[0]
+        agy_prompt = c_agy.to_agy_prompt(prompt)
+        for text in (agent, prompt, agy_prompt, workflow_prompt):
+            for instruction in PROOF_INSTRUCTIONS:
+                self.assertIn(instruction, text)
+        for text in (agent, prompt, workflow_prompt):
+            self.assertIn(COMMAND_TEST_INSTRUCTION, text)
+        self.assertNotIn(COMMAND_TEST_INSTRUCTION, agy_prompt)
 
 
 if __name__ == "__main__":

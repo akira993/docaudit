@@ -101,7 +101,8 @@ def context(root, paths=("docs/a.md",)):
 
 def judgement(path="docs/a.md", **overrides):
     value = {"runId": RUN_ID, "path": path, "verdict": "PASS",
-             "rationale": "docs/a.md:1 matches", "evidence": ["docs/a.md:1"]}
+             "rationale": "docs/a.md:1 matches", "evidence": ["docs/a.md:1"],
+             "readBack": [], "docQuote": ["# synthetic"] if overrides.get("verdict") == "FAIL" else []}
     value.update(overrides)
     return value
 
@@ -230,7 +231,7 @@ class AgyPromptTests(unittest.TestCase):
 
     def test_replacement_produces_the_three_new_sentences_and_no_command_words(self):
         replaced = c_agy().to_agy_prompt(self._text())
-        expected = self._text()
+        expected = self._text().replace(c_dispatch.COMMAND_TEST_INSTRUCTION + " ", "")
         for old, new in REPLACEMENTS:
             expected = expected.replace(old, new)
         self.assertEqual(replaced, expected)
@@ -296,6 +297,7 @@ class AgyDispatchTests(AgyFixture):
         stdin = self.calls("stdin")[0]
         expected = c_dispatch._prompt(ctx, ctx["scope"]["impacted"][0],
                                       {"runId": RUN_ID, "path": "docs/a.md"})
+        expected = expected.replace(c_dispatch.COMMAND_TEST_INSTRUCTION + " ", "")
         for old, new in REPLACEMENTS:
             expected = expected.replace(old, new)
         self.assertEqual(stdin, expected)

@@ -172,6 +172,7 @@ class WorkflowContractTests(unittest.TestCase):
                 "runId": RUN_ID, "requestSeq": 1, "attempt": 1,
                 "docId": doc["docId"], "path": "docs/a.md", "verdict": "PASS",
                 "rationale": "docs/a.md:1 pass", "evidence": ["docs/a.md:1"],
+                "readBack": [], "docQuote": [],
             }
             cases = {
                 "invalid-json": b"{",

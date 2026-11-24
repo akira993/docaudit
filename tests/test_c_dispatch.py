@@ -11,6 +11,7 @@ from unittest import mock
 
 from skills.audit.engine import c_dispatch
 from tests.acceptance import acceptance
+from tests.fixtures import document_proof
 
 
 def context(root, paths=("docs/a.md",)):
@@ -40,6 +41,10 @@ def fake_call(mode):
         identity = json.loads(prompt.split("Echo these exact values in the runId and path fields of your JSON: ", 1)[1].splitlines()[0])
         value = {"runId": identity["runId"], "path": identity["path"], "verdict": "PASS",
                  "rationale": "docs/a.md:1 verdict: CONSISTENT", "evidence": ["docs/a.md:1"]}
+        if mode == "fail":
+            value["verdict"] = "FAIL"
+        requested = json.loads(prompt.split("Read-back line numbers: ", 1)[1].splitlines()[0])
+        value.update(document_proof(Path(kwargs["cwd"]) / identity["path"], requested, value["verdict"]))
         if mode == "fifo":
             output.unlink(); os.mkfifo(output)
         elif mode == "large": output.write_bytes(b"x" * (c_dispatch.CODEX_OUTPUT_MAX_BYTES + 1))
@@ -47,7 +52,6 @@ def fake_call(mode):
         elif mode == "identity": value["path"] = "docs/other.md"; output.write_text(json.dumps(value), encoding="utf-8")
         elif mode == "type": value["evidence"] = "bad"; output.write_text(json.dumps(value), encoding="utf-8")
         else:
-            if mode == "fail": value["verdict"] = "FAIL"
             output.write_text(json.dumps(value), encoding="utf-8")
         return {"exit": 0, "timedOut": False, "cancelled": False, "durationMs": 1}
     return call

@@ -63,6 +63,7 @@ def to_agy_prompt(text):
         if text.count(old) != 1:
             raise AgyPromptInvalid("agy-prompt-invalid")
         text = text.replace(old, new)
+    text = text.replace(c_dispatch.COMMAND_TEST_INSTRUCTION + " ", "")
     for pattern in AGY_FORBIDDEN:
         if re.search(pattern, text):
             raise AgyPromptInvalid("agy-prompt-invalid")
@@ -85,7 +86,7 @@ def _judge_output(path, schema, validate):
     value = document.get("structured_output")
     if not isinstance(value, dict):
         return None, "structured-output-missing"
-    problem = c_codex._schema_problem(value, schema)
+    problem = c_dispatch._judge_schema_problem(value, schema)
     if problem is not None:
         return None, problem
     return value, validate(value)
@@ -207,13 +208,14 @@ def adapter(ctx):
         del index
         identity = {"runId": ctx["run_id"], "path": item["path"],
                     "contentHash": c_dispatch._blob(ctx["scope"]["snapshot"][item["path"]])}
+        requested = c_dispatch._read_back_lines(identity, c_dispatch._document_lines(ctx["repo"], item["path"]))
         call_ctx = dict(ctx)
         call_ctx["next_call_seq"] = next_call_seq
         call_ctx["kill_grace_sec"] = KILL_GRACE_SEC
         value, reason, records = call(
-            call_ctx, prompt=c_dispatch._prompt(ctx, item, identity),
+            call_ctx, prompt=c_dispatch._prompt(ctx, item, identity, requested),
             schema=c_dispatch.CODEX_OUTPUT_SCHEMA,
-            validate=lambda output: c_dispatch._validate(output, identity),
+            validate=lambda output: c_dispatch._validate(output, identity, ctx["repo"], requested),
             doc_id=item["path"], timeout_sec=AGY_DOC_TIMEOUT_SEC,
             attempts=AGY_MAX_ATTEMPTS, cancel=cancel,
         )

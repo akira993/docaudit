@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from . import c_evidence, c_io
-from .c_dispatch import _links_checked
+from .c_dispatch import _document_lines, _links_checked, _proof_problem, _read_back_lines
 from .deps import AdapterResult
 
 
@@ -19,7 +19,7 @@ MAX_REQUESTS = 3
 MAX_EXTERNAL_BYTES = 1024 * 1024
 REQUIRED_JUDGEMENT_KEYS = {
     "runId", "requestSeq", "attempt", "docId", "path", "verdict",
-    "rationale", "evidence",
+    "rationale", "evidence", "readBack", "docQuote",
 }
 OPTIONAL_JUDGEMENT_KEYS = {"retrievalUsed"}
 
@@ -169,6 +169,9 @@ def _issue(ctx, request_seq: int, documents):
     request_documents = []
     for item in sorted(documents, key=lambda row: row["path"]):
         value = dict(item)
+        if "readBackLines" not in value:
+            identity = dict(item, runId=ctx["run_id"])
+            value["readBackLines"] = _read_back_lines(identity, _document_lines(ctx["repo"], item["path"]))
         value["judgementPath"] = (
             f"{run_base}/requests/{request_seq}/judgements/{item['docId']}.json"
         )
@@ -245,7 +248,9 @@ def _validate_judgement(repo, request, document):
     except (OSError, c_io.IoRejected):
         return None, "not-regular", None
     keys = set(value)
-    if not REQUIRED_JUDGEMENT_KEYS.issubset(keys) or keys - REQUIRED_JUDGEMENT_KEYS - OPTIONAL_JUDGEMENT_KEYS:
+    missing = REQUIRED_JUDGEMENT_KEYS - keys
+    if (missing - {"readBack", "docQuote"}
+            or keys - REQUIRED_JUDGEMENT_KEYS - OPTIONAL_JUDGEMENT_KEYS):
         return None, "schema-mismatch", None
     if (
         not isinstance(value.get("runId"), str)
@@ -258,6 +263,10 @@ def _validate_judgement(repo, request, document):
         or not isinstance(value.get("rationale"), str)
         or not isinstance(value.get("evidence"), list)
         or any(not isinstance(item, str) for item in value.get("evidence", ()))
+        or ("docQuote" in value and (
+            not isinstance(value["docQuote"], list)
+            or any(not isinstance(item, str) for item in value["docQuote"])
+        ))
         or (
             "retrievalUsed" in value
             and (
@@ -273,6 +282,12 @@ def _validate_judgement(repo, request, document):
         return None, "stale-request", None
     if value["runId"] != request["runId"] or value["path"] != document["path"]:
         return None, "identity-mismatch", None
+    if value["verdict"] != "FAIL" and (missing == {"docQuote"} or value.get("docQuote")):
+        return None, "schema-mismatch", None
+    lines = _document_lines(repo, document["path"])
+    reason = _proof_problem(value, lines, document.get("readBackLines", ()))
+    if reason is not None:
+        return None, reason, None
     return value, None, _sha(raw)
 
 
