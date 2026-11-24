@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from skills.audit.engine import c_evidence, c_gate, deps
+from skills.audit.engine import c_evidence, c_gate, deps, procs
 from tests.acceptance import acceptance
 
 # Captured mechanically from the pre-extraction gate (`decide` at 1.0.1) with a
@@ -257,20 +257,25 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result["reason"], "worktree-modified")
                 self.assertIn(changed, result["worktreeDiff"])
 
-    def test_t_c_top_level_mdq_is_ignored_but_other_ignored_writes_are_refused(self):
-        """T-C: only the top-level mdq tool area is exempt from rule 7."""
+    def test_t_c_top_level_mdq_and_git_ignored_writes_are_refused(self):
+        """T-C: rule 7 detects changes under both .mdq and Git-ignored paths."""
         with gate_fixture() as fixture:
             usage = fixture.root / ".mdq" / "usage.jsonl"
             usage.parent.mkdir()
             usage.write_text('{"command":"search"}\n', encoding="utf-8")
-            self.assertNotEqual(decide(fixture)["verdict"], "REFUSED")
-            (fixture.root / ".gitignore").write_text("ignored/**\n", encoding="utf-8")
+            result = decide(fixture)
+            self.assertEqual((result["verdict"], result["reason"]), ("REFUSED", "worktree-modified"))
+            self.assertIn(".mdq/usage.jsonl", result["worktreeDiff"])
+        with gate_fixture() as fixture:
+            procs.run_subprocess(["git", "init", "-q"], cwd=fixture.root, check=True)
+            (fixture.root / ".git/info/exclude").write_text("ignored/\n", encoding="utf-8")
             ignored = fixture.root / "ignored" / "new.bin"
             ignored.parent.mkdir()
             ignored.write_bytes(b"new")
             result = decide(fixture)
             self.assertEqual((result["verdict"], result["reason"]), ("REFUSED", "worktree-modified"))
             self.assertIn("ignored/new.bin", result["worktreeDiff"])
+            self.assertTrue(result["worktreeDiffIgnoredOnly"])
 
     def test_rule_8_judgement_mismatch_precedes_incomplete(self):
         with gate_fixture() as fixture:

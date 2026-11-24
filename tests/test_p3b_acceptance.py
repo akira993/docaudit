@@ -264,15 +264,22 @@ class P3bAcceptanceTests(unittest.TestCase):
                 "REFUSED",
             )
 
-    def test_workflow_stray_mdq_usage_is_ignored(self):
+    def _run_workflow_with_stray_mdq_usage(self, *, tolerate):
         with tempfile.TemporaryDirectory() as outer:
             base = Path(outer)
             repo = base / "repo"
             repo.mkdir()
-            init_repo(repo)
+            config = init_repo(repo)
+            if tolerate:
+                (repo / ".gitignore").write_text(".mdq/\n", encoding="utf-8")
+                config["worktree"] = {"tolerateChangesIn": [".mdq/"]}
+                (repo / ".claude" / "docaudit.json").write_text(
+                    json.dumps(config, sort_keys=True), encoding="utf-8",
+                )
             mdq, path_dir = fake_mdq(base)
             environment = _workflow_env(base, path_dir)
             started = _audit(repo, environment)
+            self.assertEqual(started["nextAction"], "invoke-workflow")
             run_id = started["runId"]
             # Model an unrelated old tool's log write without relying on a
             # database that new runs no longer create.
@@ -288,14 +295,23 @@ class P3bAcceptanceTests(unittest.TestCase):
 
             finished = _resume(repo, run_id, environment)
             outcomes = _outcomes(repo, run_id)
-            self.assertEqual((finished["nextAction"], finished["outcome"]),
-                             ("done", "CONSISTENT"))
             self.assertEqual(len(outcomes), 1)
-            self.assertEqual(outcomes[0]["data"]["verdict"], "CONSISTENT")
+            self.assertEqual(outcomes[0]["data"]["verdict"], finished["outcome"])
             self.assertEqual(
                 outcomes[0]["data"]["metrics"]["duration"]["outcome"],
-                "CONSISTENT",
+                finished["outcome"],
             )
+            return finished, _json(_run_dir(repo, run_id) / "verdict.json")
+
+    def test_workflow_stray_mdq_usage_is_refused_by_default(self):
+        finished, verdict = self._run_workflow_with_stray_mdq_usage(tolerate=False)
+        self.assertEqual((finished["outcome"], finished["reason"]), ("REFUSED", "worktree-modified"))
+        self.assertIn(".mdq/usage.jsonl", verdict["worktreeDiff"])
+
+    def test_workflow_git_ignored_mdq_usage_can_be_tolerated(self):
+        finished, verdict = self._run_workflow_with_stray_mdq_usage(tolerate=True)
+        self.assertEqual((finished["nextAction"], finished["outcome"]), ("done", "CONSISTENT"))
+        self.assertIn(".mdq/usage.jsonl", verdict["toleratedWorktreeChanges"])
 
     @acceptance("R-WF-2", targets=1)
     def test_not_requested_document_is_rejected_and_never_becomes_success(self):

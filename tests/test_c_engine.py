@@ -213,7 +213,7 @@ def _assert_success(case: unittest.TestCase, result: dict) -> None:
 
 class EngineAcceptanceTests(unittest.TestCase):
     def test_legacy_mdq_tree_snapshot_refuses_on_resume_and_a_new_run_completes(self):
-        """T-E: an old Workflow tree snapshot containing .mdq is refused on resume."""
+        """T-E: an old Workflow tree snapshot is refused on resume after the upgrade."""
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             project_root = Path(__file__).resolve().parents[1]
@@ -223,6 +223,8 @@ class EngineAcceptanceTests(unittest.TestCase):
             usage = root / ".mdq" / "usage.jsonl"
             usage.parent.mkdir()
             usage.write_text('{"command":"search"}\n', encoding="utf-8")
+            (root / ".git/info/exclude").write_text("ignored.txt\n", encoding="utf-8")
+            (root / "ignored.txt").write_text("unchanged\n", encoding="utf-8")
             _, path_dir = fake_mdq(base)
             environment = {
                 "PATH": f"{path_dir}:/usr/bin:/bin",
@@ -236,7 +238,8 @@ class EngineAcceptanceTests(unittest.TestCase):
             old_code = (
                 "from skills.audit.engine import c_engine, c_evidence\n"
                 "import json, sys\n"
-                "c_evidence.TOOL_DIRS = ('.git',)\n"
+                "c_evidence.TOOL_DIRS = ('.git', '.mdq')\n"
+                "c_evidence._git_ignored_paths = lambda root: set()\n"
                 "print(json.dumps(c_engine.run(sys.argv[1], full=True, profile='standard'), "
                 "sort_keys=True))\n"
             )
@@ -255,7 +258,9 @@ class EngineAcceptanceTests(unittest.TestCase):
             named_paths.extend(row["path"] for row in scope.get("impacted", ()))
             self.assertFalse(any(path == ".mdq" or path.startswith(".mdq/")
                                  for path in named_paths))
-            self.assertIn(".mdq/usage.jsonl", _json(_run_dir(root, run_id) / "tree.before.json"))
+            old_tree = _json(_run_dir(root, run_id) / "tree.before.json")
+            self.assertNotIn(".mdq/usage.jsonl", old_tree)
+            self.assertTrue(old_tree["ignored.txt"].startswith("100644:"))
 
             from .fixtures import simulate_external
             simulate_external(root, run_id)
@@ -270,9 +275,7 @@ class EngineAcceptanceTests(unittest.TestCase):
             self.assertEqual((resumed["outcome"], resumed["reason"]),
                              ("REFUSED", "worktree-modified"))
             verdict = _json(_run_dir(root, run_id) / "verdict.json")
-            self.assertTrue(verdict["worktreeDiff"])
-            self.assertTrue(all(path == ".mdq" or path.startswith(".mdq/")
-                                for path in verdict["worktreeDiff"]))
+            self.assertEqual(verdict["worktreeDiff"], [".mdq", ".mdq/usage.jsonl", "ignored.txt"])
 
             following_process = subprocess.run(
                 [sys.executable, str(project_root / "skills" / "audit" / "engine"),
@@ -283,6 +286,9 @@ class EngineAcceptanceTests(unittest.TestCase):
             self.assertEqual(following_process.returncode, 0, following_process.stderr)
             following = json.loads(following_process.stdout.splitlines()[-1])
             self.assertEqual(following["nextAction"], "invoke-workflow")
+            new_tree = _json(_run_dir(root, following["runId"]) / "tree.before.json")
+            self.assertIn(".mdq/usage.jsonl", new_tree)
+            self.assertTrue(new_tree["ignored.txt"].startswith("meta:"))
             simulate_external(root, following["runId"])
             completed_process = subprocess.run(
                 [sys.executable, str(project_root / "skills" / "audit" / "engine"),
@@ -333,8 +339,8 @@ class EngineAcceptanceTests(unittest.TestCase):
             self.assertNotIn("Traceback", audit_stderr)
             self.assertNotIn("Traceback", abandon_stderr)
 
-    def test_legacy_tool_path_in_restored_scope_refuses_before_the_gate(self):
-        """T-G: a scope sealed under the old tool list is a semantic mismatch."""
+    def test_current_mdq_scope_refuses_when_restored_under_legacy_tool_list(self):
+        """T-G: the legacy tool list rejects a saved scope that contains .mdq."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             init_repo(root)
@@ -351,13 +357,12 @@ class EngineAcceptanceTests(unittest.TestCase):
             before = _anchor_bytes(root)
 
             def stop_at_capability(_context):
-                raise InjectedStop("old scope sealed")
+                raise InjectedStop("scope sealed")
 
             injected = _deps(hooks={"capability-detected": stop_at_capability})
             injected.capability_resolver = lambda directive, env: _workflow_available()
-            with mock.patch.object(c_evidence, "TOOL_DIRS", (".git",)):
-                with self.assertRaises(InjectedStop):
-                    _engine().run(root, full=True, profile="standard", deps=injected)
+            with self.assertRaises(InjectedStop):
+                _engine().run(root, full=True, profile="standard", deps=injected)
             run_id = _run_id(root)
             scope = _json(_run_dir(root, run_id) / "scope.json")
             self.assertIn(".mdq/policy.md", scope["corpus"])
@@ -369,15 +374,51 @@ class EngineAcceptanceTests(unittest.TestCase):
             self.assertTrue({"scoped", "planned"} <= journal_kinds)
             self.assertFalse((_run_dir(root, run_id) / "tree.before.json").exists())
 
-            resumed = _engine().resume(root, run_id, deps=_deps())
+            with mock.patch.object(c_evidence, "TOOL_DIRS", (".git", ".mdq")):
+                resumed = _engine().resume(root, run_id, deps=_deps())
             self.assertEqual((resumed["outcome"], resumed["reason"]),
                              ("REFUSED", "seal-drift"))
             self.assertEqual(_anchor_bytes(root), before)
             following = _engine().run(root, full=True, profile="standard", deps=_deps())
             _assert_success(self, following)
             documents = _json(_run_dir(root, following["runId"]) / "scope.json")["documents"]
-            self.assertFalse(any(path == ".mdq" or path.startswith(".mdq/")
-                                 for path in documents))
+            self.assertIn(".mdq/policy.md", documents)
+
+    def test_legacy_mdq_scope_resumes_without_recomputing_corpus_after_upgrade(self):
+        """T-G: upgrading after scope is sealed preserves the saved corpus."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = init_repo(root)
+            policy = root / ".mdq" / "policy.md"
+            policy.parent.mkdir()
+            policy.write_text("# Tool policy\n", encoding="utf-8")
+            config["corpus"]["docGlobs"].append(".mdq/**")
+            (root / ".claude/docaudit.json").write_text(
+                json.dumps(config, sort_keys=True), encoding="utf-8",
+            )
+
+            def stop_at_capability(_context):
+                raise InjectedStop("legacy scope sealed")
+
+            injected = _deps(hooks={"capability-detected": stop_at_capability})
+            with mock.patch.object(c_evidence, "TOOL_DIRS", (".git", ".mdq")):
+                with self.assertRaises(InjectedStop):
+                    _engine().run(root, full=True, profile="standard", deps=injected)
+            run_id = _run_id(root)
+            run_dir = _run_dir(root, run_id)
+            saved_scope = _json(run_dir / "scope.json")
+            self.assertNotIn(".mdq/policy.md", saved_scope["corpus"])
+            self.assertFalse((run_dir / "manifest.json").exists())
+
+            resumed = _engine().resume(root, run_id, deps=_deps())
+
+            _assert_success(self, resumed)
+            self.assertNotIn("reason", resumed)
+            self.assertEqual(_json(run_dir / "scope.json"), saved_scope)
+            following = _engine().run(root, full=True, profile="standard", deps=_deps())
+            _assert_success(self, following)
+            documents = _json(_run_dir(root, following["runId"]) / "scope.json")["documents"]
+            self.assertIn(".mdq/policy.md", documents)
 
     @acceptance("T-CORE-1", targets=2)
     def test_config_bytes_are_bound_at_seal(self):
