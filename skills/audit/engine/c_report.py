@@ -89,7 +89,16 @@ def render(facts):
     lines += ["",REPORT_SECTIONS[2],f"- corpus: {len(facts.get('corpus',[]))}",f"- changed: {len(changed)}",f"- impacted: {len(impacted)}"]
     lines += ["- "+x.get("path",str(x)) for x in impacted]
     finding_lines=[]; redacted=0
+    document_counts = {"PASS": 0, "WARN": 0, "FAIL": 0, None: 0}
+    other_count = 0
     for x in findings:
+        if "verdict" in x:
+            document_verdict = x["verdict"]
+            if document_verdict not in ("PASS", "WARN", "FAIL"):
+                document_verdict = None
+            document_counts[document_verdict] += 1
+        else:
+            other_count += 1
         tail, count=redact(f"{x.get('verdict') or x.get('severity','')} {_finding_summary(x)}")
         finding_lines.append(f"- {x.get('path') or x.get('id','')}: {tail}"); redacted+=count
     lines += ["",REPORT_SECTIONS[3]] + finding_lines
@@ -98,6 +107,11 @@ def render(facts):
     lines += ["",REPORT_SECTIONS[4],"- "+decision]
     if reason: lines.append("- reason: "+_display(reason))
     if decision=="REFUSED": lines.append("- refusedChecks: "+", ".join(_display(x) for x in refused_checks))
+    lines.append(
+        f"- 文書の判定の数: PASS {document_counts['PASS']}、WARN {document_counts['WARN']}、"
+        f"FAIL {document_counts['FAIL']}、判定なし {document_counts[None]}"
+    )
+    lines.append(f"- 文書以外の所見の数: {other_count}")
     tolerated=facts.get("toleratedWorktreeChanges",[])
     if tolerated:
         lines.append(f"- 大目に見た作業木の変化: {len(tolerated)} 件")

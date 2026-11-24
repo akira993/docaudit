@@ -34,6 +34,43 @@ class ReportTests(unittest.TestCase):
  def test_nested_gate_result_is_rendered(self):
   text=c_report.render({"runId":"20260101T000000Z-x","profileName":"p","verdict":{"verdict":"REFUSED","reason":"config-drift","refusedChecks":["configHash"]}})
   self.assertIn("- reason: config-drift",text); self.assertIn("- refusedChecks: configHash",text)
+ def test_document_and_other_finding_counts_in_verdict_section(self):
+  text = c_report.render({
+   "runId": "20260101T000000Z-x",
+   "profileName": "p",
+   "verdict": "REFUSED",
+   "reason": "seal-drift",
+   "refusedChecks": ["manifestHash"],
+   "findings": [
+    {"path": "docs/a.md", "verdict": "PASS", "summary": "matches"},
+    {"path": "docs/b.md", "verdict": "PASS", "summary": "matches"},
+    {"path": "docs/c.md", "verdict": "WARN", "summary": "unclear"},
+    {"path": "docs/d.md", "verdict": "FAIL", "summary": "mismatch"},
+    {"path": "docs/e.md", "verdict": None, "summary": None},
+    {"id": "other-check", "severity": "WARN", "summary": "check warning"},
+   ],
+  })
+  section = text.split("## 判定\n", 1)[1].split("\n## Anchor", 1)[0]
+  self.assertEqual(section.strip().splitlines(), [
+   "- REFUSED",
+   "- reason: seal-drift",
+   "- refusedChecks: manifestHash",
+   "- 文書の判定の数: PASS 2、WARN 1、FAIL 1、判定なし 1",
+   "- 文書以外の所見の数: 1",
+  ])
+ def test_zero_finding_counts_in_verdict_section(self):
+  text = c_report.render({
+   "runId": "20260101T000000Z-x",
+   "profileName": "p",
+   "verdict": "CONSISTENT",
+   "findings": [],
+  })
+  section = text.split("## 判定\n", 1)[1].split("\n## Anchor", 1)[0]
+  self.assertEqual(section.strip().splitlines(), [
+   "- CONSISTENT",
+   "- 文書の判定の数: PASS 0、WARN 0、FAIL 0、判定なし 0",
+   "- 文書以外の所見の数: 0",
+  ])
  def test_final_7_oserror_publish(self):
   import errno
   from unittest import mock
