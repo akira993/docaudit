@@ -7,6 +7,7 @@ argument-hint: "[--to vX.Y.Z] | rollback | notify on|off"
 # docaudit の更新
 
 結果は利用者が使っている言葉で伝える。どの手順でも engine の最終行に出る JSON を読む。
+engine の命令は書いたとおりに実行し、リダイレクト（例: `2>&1`）やパイプ、別の命令を付け足さない。付け足すと、更新の予定を見るだけの命令でも Claude Code が許可を求める。
 
 ## 通知の設定
 
