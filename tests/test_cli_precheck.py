@@ -161,8 +161,14 @@ class CliPrecheckTests(unittest.TestCase):
     def test_skill_uses_precheck_and_shared_verdict_criteria(self):
         skill = Path(__file__).resolve().parents[1] / "skills" / "preflight" / "SKILL.md"
         text = skill.read_text(encoding="utf-8")
-        self.assertIn('${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" precheck $ARGUMENTS', text)
+        self.assertIn('${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" precheck', text)
+        self.assertIn("--deep", text)
         self.assertIn("agents/doc-impact-verifier.md", text)
+        light, _, deep = text.partition("\n## 深い点検（`--deep`）\n")
+        self.assertNotIn("agents/doc-impact-verifier.md", light)
+        self.assertIn('`--deep` を指定したときは、先に下の「深い点検」', light)
+        self.assertNotIn("precheck $ARGUMENTS", text)
+        self.assertIn("agents/doc-impact-verifier.md", deep)
         self.assertIn("<verdict_criteria>", text)
         self.assertNotIn('engine" audit', text)
         self.assertNotIn('engine" resume', text)
