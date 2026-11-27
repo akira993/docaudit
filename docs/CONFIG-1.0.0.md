@@ -227,8 +227,9 @@ later recording follows the existing rules. A history line has `seq`, `ts`,
 `kind`, `runId`, and object `data`. Known kinds are `outcome`, `judgement`,
 `flip`, `anchor`, `legacy`, and `migration`; unknown kinds are retained and
 ignored. The identity used to detect a `flip` includes `contractVersion`, which
-remains `1.0` in docaudit 2.0.0, so a flip for the same document across the
-upgrade may reflect the added `<external>` criterion or output checks.
+remains `1.0` in docaudit 2.0.0. If the added `<external>` criterion or output
+checks change a verdict across the upgrade and the identity still matches,
+history records the change as a `flip`.
 
 An outcome event has optional `acceptBaseline: true` only when `--accept-baseline`
 was applied to a full `NEEDS_FIX` run whose blocking items are all `L-DOC`
@@ -266,26 +267,27 @@ Update state is separate from repository run state, under
 `[_NN]` across the full path. If the date is in the basename, the text
 before it must be nonempty; if the date is in a directory, the entire basename
 must be nonempty. Invalid values are `config-invalid:report.path`. The date
-comes from the run ID; collisions receive `_02`, `_03`, and so on through
-`_1000`. Publication never replaces an existing file and returns a receipt
-with relative path, SHA-256, and publication time. If every report name is
+comes from the run ID. If the unsuffixed name is occupied, the engine tries
+suffixes `_02` through `_1000` in order. Publication never replaces an existing
+file and returns a receipt with relative path, SHA-256, and publication time. If every report name is
 occupied, the engine returns status 4 with `path-exhausted` and that run's
 `runId`, leaving the run open. Move an older report to free a name, then
 resume that run.
 
 Reports have fixed front matter fields `title`, `description`, `category`, plus
 `created`, `updated`, `version`, and `docaudit`, with sections Run, 対象,
-所見, 判定, Anchor, 計測, and 証跡. When `auditReportsInCorpus` is true a
-report may become a self target next run. Engine-fixed front matter does not
-automatically satisfy `documentChecks.frontMatterFields`. The Run section
+所見, 判定, Anchor, 計測, and 証跡. On the next incremental run, a new or modified
+report enters the scope as a `self` target if `auditReportsInCorpus` is true
+and the report passes the other corpus filters. Engine-fixed front matter does
+not automatically satisfy `documentChecks.frontMatterFields`. The Run section
 places baseline immediately after `- anchor:`. Full and
 incremental runs derive it from the profile anchor. Without one it prints
 `- baseline: なし`; with one, `- baseline: <runId>（判定役 <M>、engine <V>）`.
 Older anchors use `runs/<runId>/manifest.json` for missing values; unreadable
 values are `不明` and do not count as differences. Only changed known values add
-`- 基準との違い: <parts>。内容が同じ文書でも判定が変わることがあります。`
+`- 基準との違い: <parts>。内容が同じ文書でも、判定が同じになるとは限りません。`
 For example: `- baseline: 20261014T105421Z-c82d9b3f（判定役 codex:gpt-6-luna、engine 1.3.1）`
-`- 基準との違い: 判定役 codex:gpt-6-luna → codex:gpt-6.1-sol、engine 1.3.1 → 1.5.0。内容が同じ文書でも判定が変わることがあります。`
+`- 基準との違い: 判定役 codex:gpt-6-luna → codex:gpt-6.1-sol、engine 1.3.1 → 1.5.0。内容が同じ文書でも、判定が同じになるとは限りません。`
 Runs sealed by engines before 1.5.0 have no baseline key and omit these lines
 when resumed.
 
@@ -311,20 +313,20 @@ flip and focused-profile regression selection, while REFUSED runs record none.
 
 ## Rejection reasons
 
-Configuration may report `config-missing`, `config-needs-migration`, or
-`config-invalid:<detail>`.  File operations may report `absolute-path`,
+Configuration rejection reasons include `config-missing`, `config-needs-migration`, and
+`config-invalid:<detail>`. File operation rejection reasons include `absolute-path`,
 `parent-segment`, `symlink-component`, `not-directory`, `outside-repo`,
-`not-regular`, `too-large`, `not-utf8`, `nul-in-path`, or
-`io-unsupported-platform`.  Runs may report `run-in-progress`,
+`not-regular`, `too-large`, `not-utf8`, `nul-in-path`, and
+`io-unsupported-platform`. Run rejection reasons include `run-in-progress`,
 `run-awaiting-external`, `run-interrupted-resume-required`,
-`resume-in-progress`, `run-closed`, `journal-corrupt`, `run-not-found`, or
+`resume-in-progress`, `run-closed`, `journal-corrupt`, `run-not-found`, and
 `mutex-timeout`.
 
-Migration may report `migration-source-missing`,
+Migration rejection reasons include `migration-source-missing`,
 `migration-config-invalid:<key|json|size>`,
 `migration-history-invalid:<index|json>`, `migration-last-run-invalid`,
 `migration-line-too-large`, `migration-input-changed`,
-`migration-target-exists`, or `migration-run-open`. Normal config validation
+`migration-target-exists`, and `migration-run-open`. Normal config validation
 continues to report `config-invalid:<detail>`, and malformed new history reports
 `history-corrupt`.
 
@@ -463,9 +465,9 @@ All engine write helpers check an in-process guard and record every final path,
 temporary-file operation, directory creation, and lock-file creation. An
 unlisted write is rejected as `write-not-allowed`.
 
-1. Before opening a run, only the state-root lock and ownership files, history,
-   their deterministic temporary paths, any run journal, and the directories
-   needed to reach a run directory may be created or changed.
+1. Before opening a run, the guard allows creation or modification only of the
+   state-root lock and ownership files, history, their deterministic temporary
+   paths, any run journal, and the directories needed to reach a run directory.
 2. After `runId` is known, the guard is bound to that run's fixed files listed
    above, the state-root files, their temporary paths, and the anchor directory.
 3. After planning, the exact profile anchor, exact report path and temporary
@@ -508,9 +510,10 @@ entry and byte limits for `worktree-too-large`.
 Workflow runs atomically persist the canonical pre-dispatch tree snapshot in
 `tree.before.json` with a 64 MiB limit. Codex and agy runs do the same when
 `worktree.tolerateChangesIn` is nonempty; if that snapshot exceeds the limit,
-the run ends before dispatch as `undecided worktree-too-large`. A later process may reconstruct the
-worktree difference from this file only when its semantic hash equals the
-sealed `treeDigestBefore`. A missing, invalid, oversized, or mismatched snapshot
+the run ends before dispatch as `undecided worktree-too-large`. For a worktree
+difference in a later process, the engine uses this file only if it is a valid
+snapshot within the size limit and its semantic hash equals the sealed
+`treeDigestBefore`. A missing, invalid, oversized, or mismatched snapshot
 is treated like an unavailable difference cache. Codex and agy runs with an
 empty list do not write this snapshot. If such a run is resumed in another
 process after the worktree changes, the gate refuses it with an empty
@@ -686,9 +689,9 @@ means the run cannot proceed or record an outcome; a profile refusal such as
 with that run's `runId` and leaves it open. Other cases include a later
 `mutex-timeout` or report-name exhaustion (`path-exhausted`). The `abort`
 result carries that run's `runId`, and the run stays open for resume or abandon;
-it does not reach `closed`. While `history.jsonl` is unreadable or corrupt,
-resuming or abandoning that run may continue to fail. Abandonment rejected for
-`history-corrupt`, or `PermissionError` or `OSError` while reading history,
+it does not reach `closed`. If a resume or abandon attempt fails to read or
+validate `history.jsonl`, that attempt stops before closing the run. Abandonment
+rejected for `history-corrupt`, or `PermissionError` or `OSError` while reading history,
 returns status 4 with a null `runId`. Operating-system errors
 and rejected writes can also interrupt an opened run. Recovery-detected integrity failures are
 recorded in history and closed with status 0. Resume also reconciles a
@@ -705,8 +708,8 @@ For `migrate --dry-run`, status 0 means `convertible` or `unchanged`, and status
 1 means `not-convertible`; both use `nextAction: "done"`. For full `migrate`,
 status 0 means `migrated` or `unchanged`. `migration-source-missing` and
 `migration-run-open` use status 3; every other migration rejection uses status
-4. Full migration rejections use `nextAction: "abort"`. Only migrate results
-may additionally expose `config`, `counts`, `inputs`, `anchor`, and `runOpen`.
+4. Full migration rejections use `nextAction: "abort"`. Handled migrate results
+alone include the additional keys `config`, `counts`, `inputs`, `anchor`, and `runOpen`.
 Migration creates no run, and its handled results omit `runId`; an unhandled
 write-guard rejection such as missing `fcntl.F_GETPATH` instead reaches the CLI's
 status 4 handler and returns `io-unsupported-platform` with `runId: null`. `runOpen`
@@ -883,15 +886,16 @@ An exhausted document remains as a judgement with null verdict and summary,
 the sealed content hash and backend model, and `failure {reason, attempts}`.
 Such a row is still identity-checked, makes an incomplete adapter undecided,
 does not participate in gate folding, and is not copied to judgement or flip
-history. A successful row may additionally carry its string-array `evidence`.
+history. A successful row includes a string-array `evidence` field when the
+adapter supplies it.
 
 Every attempt appends one `model-call` evidence record before the layer's final `adapter-result`.
 It contains `callSeq`, relative `path`, `attempt`, `model`, `exit`, `timedOut`,
 `durationMs`, `outputBytes`, `valid`, and `reason`; for a Codex call `model` is
-`codex:<model>`. Failed Codex and agy calls (`reason` not null) may add
-`stderrTail` from the CLI error output; successful calls, missing or empty
-output, an empty processed tail, a path that is not a regular file, or a
-symbolic link at that path omit the key. The last 2048 bytes are read.
+`codex:<model>`. A failed Codex or agy call (`reason` not null) adds `stderrTail`
+when reading the CLI error output from a regular file without following a
+symbolic link yields a nonempty processed tail. Otherwise the record omits
+the key. The last 2048 bytes are read.
 The engine reads CLI stderr through a pipe and alone writes its temporary file.
 The engine opens that file without following symbolic links and uses it only if
 it is a regular file with no other hard link; otherwise an agy attempt is
@@ -992,10 +996,10 @@ shell or terminal command and to use only file-reading, directory-listing and
 file-search tools; the `find` example becomes a reference to those tools; and the
 `git ls-files` and `git check-ignore` steps become a statement that git tracking
 cannot be checked, with the nested-checkout rule decided by the presence of a
-`.git` file or directory alone. Each replaced sentence must occur exactly once in
-the prompt, and after the replacements no `find `, `git ls-files`,
-`git check-ignore`, or imperative `run ` may remain; otherwise the attempt fails
-with `agy-prompt-invalid` and agy is not started.
+`.git` file or directory alone. If a replaced sentence does not occur exactly
+once in the prompt, or if `find `, `git ls-files`, `git check-ignore`, or
+imperative `run ` remains after the replacements, the attempt fails with
+`agy-prompt-invalid` and agy is not started.
 
 The output is one JSON object with `status`, `denied_actions`, and
 `structured_output`. Before any attempt, failure to create the private temporary
@@ -1256,13 +1260,15 @@ L-PROJECT always provides four read-only built-ins over the sealed corpus:
 `documentChecks.layerGlobs` accepts only those four IDs and removes matching
 documents from that check. Links inside code fences, or between two backticks on
 the same line, are ignored; a code span delimited by two or more backticks, or
-one that spans lines, is not recognized, so links in it may be checked. An
-optional Markdown link title is not part of the target. Link targets may
-be angle-bracketed. Destinations and titles support CommonMark 0.31.2 forms
+one that spans lines, is not recognized as a span, so the checker treats
+unmasked links within it as ordinary links. An optional Markdown link title is
+not part of the target. The parser accepts angle-bracketed link targets.
+Destinations and titles support CommonMark 0.31.2 forms
 (balanced parentheses with up to 32 nested pairs, backslash-escaped parentheses,
 spaces in `<...>`, and double-quoted, single-quoted, or parenthesized titles).
-Link text and titles may span nonblank lines; permitted separating whitespace
-may contain one line ending, but destinations cannot contain line endings.
+The parser accepts line breaks in link text and titles if there is no blank
+line. It accepts at most one line ending in permitted separating whitespace.
+Destinations cannot contain line endings.
 Nested square brackets in link text, reference definitions indented by four
 or more spaces (including inside lists), and reference definitions following
 list or quote markers are not extracted. Entity and numeric
@@ -1436,9 +1442,9 @@ model-call-limit`, records history, and never advances the anchor.
 `rejected`. `reserved` is the sum of durable reservation counts even when the
 limit is null; `rejected` is zero or one. The invariant is
 `total <= reserved`. Equality holds for an uninterrupted Codex run and for
-received Workflow generations. It may be strict after interruption between
-reservation and model-call recording, or when a Workflow generation was
-issued but never received. For a run that publishes a report, duration and
+received Workflow generations. The inequality is strict when an interruption
+leaves a reservation without its model-call record, or when an issued Workflow
+generation was never received. For a run that publishes a report, duration and
 model-call measurements are computed once immediately before rendering and
 shared by the report, `metrics.json`, and the history outcome row's `metrics`.
 Consequently, `duration.componentMs` for `C-REPORT` excludes rendering and
