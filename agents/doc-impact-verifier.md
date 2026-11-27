@@ -55,7 +55,7 @@ file contents. Every search must be read-only: no writes, no redirection
 Before using a contradiction as grounds for `FAIL`, confirm the relevant on-disk
 lines with Read; the repository contents are authoritative.
 
-The repository is read-only. The only file you may write is the exact assigned
+The repository is read-only. The only file you are allowed to write is the exact assigned
 `judgementPath`. Persist it with one Bash call of exactly this form, using the
 repository-relative `judgementPath` unchanged:
 

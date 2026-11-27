@@ -127,7 +127,7 @@ class BaselineReportTests(unittest.TestCase):
         baseline = {"runId": RUN_ID, "resolvedBackendModel": "codex:gpt-6-luna", "engineVersion": "1.3.1"}
         text = c_report.render(self._report_facts(baseline=baseline))
         self.assertIn(f"- anchor: None\n- baseline: {RUN_ID}（判定役 codex:gpt-6-luna、engine 1.3.1）\n"
-                      "- 基準との違い: 判定役 codex:gpt-6-luna → codex:gpt-6.1-sol、engine 1.3.1 → 1.5.0。内容が同じ文書でも判定が変わることがあります。\n\n## 対象", text)
+                      "- 基準との違い: 判定役 codex:gpt-6-luna → codex:gpt-6.1-sol、engine 1.3.1 → 1.5.0。内容が同じ文書でも、判定が同じになるとは限りません。\n\n## 対象", text)
 
     def test_report_same_or_unknown_values_have_no_difference_line(self):
         for baseline in ({"runId": RUN_ID, "resolvedBackendModel": "codex:gpt-6.1-sol", "engineVersion": "1.5.0"},

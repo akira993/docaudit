@@ -1102,7 +1102,7 @@ def _drive_resume(repo, handle, guard, dependencies):
     journal = c_run._journal(handle.state_dir_fd, handle.run_id, reject=True)
     for recovered in handle.recovered_tmp:
         journal.append(c_run.append_journal(handle, "tmp-recovered", {"path": recovered}))
-    # An outcome may exist even if anchor advancement, metrics, or close was interrupted.
+    # Resume checks for an outcome recorded before an interruption in anchor advancement, metrics, or close.
     history = [row for row in c_history.read_history(repo) if row["kind"] == "outcome" and row["runId"] == handle.run_id]
     outcome_data = history[0].get("data", {}) if history else {}
     must_reconcile = history and outcome_data.get("verdict") == "NEEDS_FIX" and isinstance(outcome_data.get("reportReceipt"), dict)

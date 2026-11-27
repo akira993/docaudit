@@ -85,7 +85,7 @@ def render(facts):
                 parts.append(f"判定役 {model} → {current_model}")
             if isinstance(version,str) and isinstance(current_version,str) and version != current_version:
                 parts.append(f"engine {version} → {current_version}")
-            if parts: lines.append(f"- 基準との違い: {'、'.join(parts)}。内容が同じ文書でも判定が変わることがあります。")
+            if parts: lines.append(f"- 基準との違い: {'、'.join(parts)}。内容が同じ文書でも、判定が同じになるとは限りません。")
     lines += ["",REPORT_SECTIONS[2],f"- corpus: {len(facts.get('corpus',[]))}",f"- changed: {len(changed)}",f"- impacted: {len(impacted)}"]
     lines += ["- "+x.get("path",str(x)) for x in impacted]
     finding_lines=[]; redacted=0

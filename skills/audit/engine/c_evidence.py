@@ -55,7 +55,7 @@ class EvidenceRejected(Exception):
 
 
 class Ledger(list):
-    """A ledger whose final interrupted line may have been ignored."""
+    """A ledger with a truncation flag for an omitted final line without a newline."""
 
     def __init__(self, values=(), *, truncated: bool = False):
         super().__init__(values)
@@ -110,7 +110,7 @@ def allowed_write_paths(
     *,
     workflow_docs: Iterable[str] | None = None,
 ) -> list[str]:
-    """Enumerate the exact final files a sealed run may write."""
+    """Enumerate the exact final files a sealed run is allowed to write."""
     if not run_id or any(part in run_id for part in ("/", "\\", "..", "\x00")):
         raise EvidenceRejected("allowed-write-path-invalid", "runId")
     if not profile_name or any(part in profile_name for part in ("/", "\\", "..", "\x00")):
