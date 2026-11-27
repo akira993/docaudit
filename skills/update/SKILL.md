@@ -25,9 +25,9 @@ python3 -B "${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" update notify off
 python3 -B "${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" update rollback --dry-run
 ~~~
 
-`from` にある現在の版と `to` にある戻し先の版を示す。戻せる場合は質問用の道具で利用者に承認を求める。承認を得たら次の命令を実行する。戻せない場合は理由を伝えて終える。
+`from` にある現在の版と `to` にある戻し先の版を示す。戻せない場合は理由を伝えて終える。戻せる場合は次の命令を実行する。Claude Code が許可画面で利用者に承認を求める。利用者が拒否したら、命令を再実行せず、拒否されたと伝えて終える。
 
-復元には数分かかることがある。実行時の制限時間を 10 分（600,000 ミリ秒）に設定する。
+復元を待てるよう、実行時の制限時間を 10 分（600,000 ミリ秒）に設定する。
 
 ~~~sh
 python3 -B "${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" update rollback
@@ -47,7 +47,7 @@ python3 -B "${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" update plan $ARGUMENTS
 
 更新する前に、進行中の監査があれば先に終えるか、engine の `resume <runId> --abandon` で中止するよう利用者に伝える。
 
-質問用の道具で、その版への更新を承認するか利用者に尋ねる。承認を得たら `<対象>` を `target` の値に置き換える。更新には数分かかることがあるので、実行時の制限時間を 10 分（600,000 ミリ秒）に設定する。
+`<対象>` を `target` の値に置き換える。更新を待てるよう、実行時の制限時間を 10 分（600,000 ミリ秒）に設定する。次の命令を実行すると、Claude Code が許可画面で利用者に承認を求める。利用者が拒否したら、命令を再実行せず、拒否されたと伝えて終える。
 
 ~~~sh
 python3 -B "${CLAUDE_PLUGIN_ROOT}/skills/audit/engine" update apply --to <対象>

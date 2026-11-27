@@ -38,6 +38,7 @@ class LayoutTests(unittest.TestCase):
             "skills/audit/engine/c_update.py",
             "skills/update/SKILL.md",
             "hooks/hooks.json",
+            "hooks/update_gate.py",
             "tests/test_cli_precheck.py",
             "tests/test_update.py",
         ]
