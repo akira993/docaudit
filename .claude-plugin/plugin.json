@@ -1,6 +1,6 @@
 {
   "name": "docaudit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Report-only documentation audits with run profiles and sealed results, pre-audit fixes with approval, and plugin updates.",
   "homepage": "https://github.com/akira993/docaudit",
   "repository": "https://github.com/akira993/docaudit",

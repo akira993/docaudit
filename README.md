@@ -21,34 +21,34 @@ A run ends in one outcome: the verdicts `CONSISTENT` or `NEEDS_FIX`, or, when it
 
 Before upgrading to 2.0.0, use the earlier engine to finish every open run (a `.claude/state/docaudit/run-open.json` with `state` other than `closed`) or close it with `resume <runId> --abandon`. The worktree snapshot now records Git-ignored regular files differently and includes the top-level `.mdq/`. Resuming an older run after upgrading can give `REFUSED worktree-modified`. Codex and agy runs with an empty `worktree.tolerateChangesIn` save no `tree.before.json`, so `worktreeDiff` can be empty. A Claude Workflow run opened in 1.x and resumed in 2.0.0 can end `REFUSED request-drift` or `undecided external-incomplete` without advancing its anchor. The default verifier models are the same as in 1.9.0. Review any leftover `.mdq/` files before starting a new audit. To allow writes there during an audit, add `.mdq/` to Git's ignore rules and set `worktree.tolerateChangesIn: [".mdq/"]` if the directory meets the [configuration rules](docs/CONFIG-1.0.0.md#worktree-changes-made-by-other-tools).
 
-The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-2.0.0`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
+The plugin is installed as a "skills-dir" plugin: the tracked files of the release tag are placed under `~/.claude/skills/docaudit/`. If that directory already exists it is moved aside first, to `~/.claude/docaudit.before-2.1.0`, so that no files from another version remain. The backup must not stay under `~/.claude/skills/`: Claude Code loads every directory there as a plugin, and the backup carries the same plugin name, so it would be loaded instead of the new install. For the same reason the chain starts by checking that no `docaudit.*` entry exists under `~/.claude/skills/` (for example a backup made by the install procedure of an earlier release) and stops, before creating or changing anything, if one does or if that check cannot be completed; move every such entry out of `~/.claude/skills/` and run the chain again.
 
 ```sh
 { [ ! -e ~/.claude/skills ] || [ "$(find ~/.claude/skills/ -maxdepth 1 -name 'docaudit.*' -print -quit && echo ok)" = ok ]; } \
   && SRC=$(mktemp -d) && TAR=$(mktemp) \
   && git clone https://github.com/akira993/docaudit "$SRC" \
   && { [ ! -e ~/.claude/skills/docaudit ] \
-       || { [ ! -e ~/.claude/docaudit.before-2.0.0 ] && mv ~/.claude/skills/docaudit ~/.claude/docaudit.before-2.0.0; }; } \
+       || { [ ! -e ~/.claude/docaudit.before-2.1.0 ] && mv ~/.claude/skills/docaudit ~/.claude/docaudit.before-2.1.0; }; } \
   && [ ! -e ~/.claude/skills/docaudit ] \
-  && git -C "$SRC" archive --format=tar -o "$TAR" v2.0.0 \
+  && git -C "$SRC" archive --format=tar -o "$TAR" v2.1.0 \
   && mkdir -p ~/.claude/skills/docaudit \
   && tar -x -f "$TAR" -C ~/.claude/skills/docaudit \
   && python3 ~/.claude/skills/docaudit/skills/audit/engine --version
 ```
 
-The last command prints `2.0.0`. The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` is either absent or holds an unverified copy: if it exists, rename it to a name that does not exist yet (for example `~/.claude/docaudit.unverified-2.0.0`) or delete it; then move `~/.claude/docaudit.before-2.0.0` back to `~/.claude/skills/docaudit`. If the backup name already exists from an earlier attempt, rename that older backup first.
+The last command prints `2.1.0`. The chain stops at the first step that fails, and an existing install is never overwritten in place. If it stops after the backup was made, `~/.claude/skills/docaudit` is either absent or holds an unverified copy: if it exists, rename it to a name that does not exist yet (for example `~/.claude/docaudit.unverified-2.1.0`) or delete it; then move `~/.claude/docaudit.before-2.1.0` back to `~/.claude/skills/docaudit`. If the backup name already exists from an earlier attempt, rename that older backup first.
 
-Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 2.0.0, and `/docaudit:audit`, `/docaudit:preflight`, and `/docaudit:update` are available.
+Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@skills-dir` at version 2.1.0, and `/docaudit:audit`, `/docaudit:preflight`, and `/docaudit:update` are available.
 
 Alternatively, install through the plugin marketplace that this repository declares. Use one install method, not both: two enabled plugins with the same name have not been verified, so if `~/.claude/skills/docaudit` already exists, move it out of `~/.claude/skills/` first.
 
 ```sh
-claude plugin marketplace add akira993/docaudit@v2.0.0 \
+claude plugin marketplace add akira993/docaudit@v2.1.0 \
   && claude plugin install docaudit@akira-plugins \
-  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/2.0.0/skills/audit/engine --version
+  && python3 ~/.claude/plugins/cache/akira-plugins/docaudit/2.1.0/skills/audit/engine --version
 ```
 
-The last command prints `2.0.0`. Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 2.0.0. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
+The last command prints `2.1.0`. Start a new Claude Code session (or run `/reload-plugins`); `claude plugin list` then shows `docaudit@akira-plugins` at version 2.1.0. If you installed this way, use that engine path wherever the commands below say `~/.claude/skills/docaudit/skills/audit/engine`. The path assumes the default configuration directory; if the last command fails, locate `skills/audit/engine` under your plugin cache and use that path instead.
 
 ## Updates and notifications
 

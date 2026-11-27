@@ -9,5 +9,7 @@ tasks/
 .envrc
 /AGENTS.md
 /CLAUDE.md
+/PHILOSOPHY.md
+/.bak/
 /.claude/
 /mdrg.toml
