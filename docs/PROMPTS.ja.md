@@ -2,7 +2,7 @@
 
 English: [PROMPTS.md](PROMPTS.md)
 
-Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。`/docaudit:audit` のオプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended`、`--backend agy|codex|claude`、`--fast`（`--backend codex` と併用する場合だけ）です。監査は報告専用です。監査前に文書の修正案を確認して適用するには、`/docaudit:preflight` を使います。承認した箇所だけが修正されます。
+Claude Code の中で docaudit を動かすための、コピーして使えるプロンプト集です。各例には期待される結果を添えているので、正常な結果と問題を見分けられます。`/docaudit:audit` のオプションは `--full`、`--accept-baseline`（`--full` と併用する場合だけ）、`--profile focused|standard|extended`、`--backend agy|codex|claude`、`--fast`（`--backend codex` と併用する場合だけ）です。監査は報告専用です。監査前に `/docaudit:preflight` を実行すると、組み込み検査の所見が表示され、会話モデルが文書の修正案を作ります。承認した箇所だけを直し、検査を再実行します。`--deep` を加えると、修正の承認前に監査の判定基準でも影響対象の文書を読みます。
 
 skill は位置引数の profile も受け付けます。`/docaudit:audit standard` は `/docaudit:audit --profile standard` と同じで、`focused`・`extended` も同様です。両方を指定するときは同じ値にする必要があり、異なると解析は終了値 2 で失敗します。どちらも指定しなければ profile は自動選択されます。
 
@@ -16,11 +16,11 @@ skill は位置引数の profile も受け付けます。`/docaudit:audit standa
 このリポジトリで /docaudit:audit --full を実行して。終わったら公開された report を開き、失敗と判定された文書を要約と一緒に列挙して。その後、それぞれについて .claude/state/docaudit/runs/<runId>/ の証拠台帳にある judgement の証拠文字列を見せて（Claude Code の agent で検証した run では requests/<seq>/judgements/ にもある）。文書は編集しないで。
 ```
 
-期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は、`--backend` を指名せず Claude Code の外で Codex CLI も設定済みの agy も使えない場合、または `--backend` で指名した backend を使えない場合に起きます。後者は Claude Code の中でも起きます。検証の開始前に `undecided` で終わった run（`backend-unavailable` など）は report を公開しないので、その場合は開く report がありません。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
+期待: `NEEDS_FIX` または `CONSISTENT`。corpus の最初の run では `NEEDS_FIX` が普通です。証拠台帳は原文のまま、履歴の judgement は伏字です。`undecided backend-unavailable` は、`--backend` を指名せず Claude Code の外で Codex CLI も設定済みの agy も使えない場合、または `--backend` で指名した backend を使えない場合に起きます。後者は Claude Code の中でも起きます。検証の開始前に `undecided` で終わった run は report を公開しません。たとえば `undecided backend-unavailable` で終わった run には、開く report がありません。文書判定だけで `NEEDS_FIX` のままなら、`/docaudit:audit --full --accept-baseline` がその run から anchor を書けます。その他の blocking finding は先に直してください。
 
 ## 2. 最初の監査の指摘を直して、もう一度
 
-公開済みの監査報告をもとに修正を依頼するプロンプトです。監査を始める前に文書を点検し、修正案を承認する場合は `/docaudit:preflight --full` を実行します。点検が終わったら、監査は別に実行してください。
+公開済みの監査報告をもとに修正を依頼するプロンプトです。監査を始める前に文書を点検し、修正案を承認する場合は `/docaudit:preflight --full` を実行します。監査の判定基準でも文書を確かめるには `--deep` を加えます。点検が終わったら、監査は別に実行してください。
 
 ```
 最新の docaudit report は、監査の JSON 結果行の `reportPath`（このリポジトリの設定の `report.path` に従う）にある。失敗した文書ごとに、食い違いとそれが矛盾しているコードを見せて、文書を正しくする最小の編集を提案して。私が承認した編集だけを適用して、それ以外は触らないで。その後 /docaudit:audit --full をもう一度実行して。
@@ -52,7 +52,7 @@ Codex CLI が利用可能性検査に合格し、`enabledLayers` が 7 層すべ
 /docaudit:audit --profile extended --full を実行して。verdict を報告した後、adversarial と security の所見を重大度順に列挙し、confirmed な claim ごとに証拠 file と行を示して。
 ```
 
-期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。`undecided backend-failed` は、Codex・agy で検証した文書がすべての試行に失敗した場合、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかった場合に起きることがあります。Claude Code の agent で検証した文書が 3 回目の request の後も未解決なら、代わりに `undecided external-incomplete` で終わります。engine が `capability-missing:<layer>` で拒否したら、不足する層が名前順で 1 つずつ示されるため、選んだ profile に必要な層をすべて `enabledLayers` に追加します（`extended` には 7 層すべてが必要です）。位置引数と `--profile` のどちらも省くと run を開く前に既定の `standard` の層が必要です。`L-PROJECT` を外した場合は `--profile focused` を指定します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
+期待: `CONSISTENT`、または confirmed な claim が blocking として示された `NEEDS_FIX`。判定の段で最初に見つかる未完了の理由が `backend-failed` なら、run は `undecided backend-failed` で終わります。この理由は、Codex・agy で検証した文書がすべての試行に失敗したとき、または `L-ADVERSARIAL`・`L-SECURITY`・`L-CLAIM` の Codex 評価がすべての試行に失敗したか、最初の試行前に私用の一時ディレクトリを作れなかったときに記録されます。Claude Code の agent で検証した文書が 3 回目の request の後も未解決なら、代わりに `undecided external-incomplete` で終わります。engine が `capability-missing:<layer>` で拒否したら、不足する層が名前順で 1 つずつ示されるため、選んだ profile に必要な層をすべて `enabledLayers` に追加します（`extended` には 7 層すべてが必要です）。位置引数と `--profile` のどちらも省くと run を開く前に既定の `standard` の層が必要です。`L-PROJECT` を外した場合は `--profile focused` を指定します。run が `undecided codex-unavailable` または `undecided workflow-adapter-unavailable` で終わったら、Codex CLI が利用可能性検査に合格しなかったということで、`L-SECURITY`・`L-ADVERSARIAL`・`L-CLAIM` の 3 層は Codex でしか動きません（文書の検証が Claude Code の agent 経由なら `workflow-adapter-unavailable`、agy 経由なら `codex-unavailable`）。
 
 ## 6. 旧設定の移行
 
@@ -84,7 +84,7 @@ skill は前の session から残った run を回復しないので、明示的
 前の run が開いたままで docaudit が開始を拒否した。結果行の reason は <run-in-progress|run-awaiting-external|run-interrupted-resume-required> だった。.claude/state/docaudit/run-open.json を読んで run ID を教えて。判断はその file の state ではなく reason で行って: reason が run-in-progress なら、別の process が run を保持しているので待つように言って。run-awaiting-external か run-interrupted-resume-required なら、次のコマンドで再開して: python3 ~/.claude/skills/docaudit/skills/audit/engine resume <runId> --repo-root . 結果が nextAction invoke-workflow なら、その request に対して docaudit の検証 workflow を実行してもう一度再開して。再開が `resume-in-progress` で拒否されたら別の process が終わるのを待って再度再開して。`run-not-found` または `run-closed` ならその ID の開いている run がないので止めて伝えて。それ以外の理由（`history-corrupt` を含む）で再開が失敗し続けるなら、履歴は自分で修復せず、同じコマンドに --abandon を付けて 1 回試し、成功・失敗のいずれでも止めて、再開と放棄の両方の結果を伝えて。
 ```
 
-期待: run が `closed` に到達し、次の監査を始められます。放棄が成功すると、結果が記録済みでも結果行には常に `undecided abandoned` が表示されます。`history.jsonl` では、結果が未記録なら、放棄は verdict なしで run を closed として記録します（`undecided abandoned`）。中断前に結果が記録済みなら、その結果を保ち、放棄の結果は追加しません。放棄では anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。`PermissionError`・`OSError` などの OS のエラーでも終了値 4 で失敗します。`history-corrupt` を含むこれらの履歴の読み取りの失敗では、結果行の `runId` は null です。修復方法は [ADOPTION.ja.md](ADOPTION.ja.md) 第 11 節の `history-corrupt` の項を参照してください。anchor file だけが壊れている場合は放棄できます。
+期待: run が `closed` に到達し、次の監査を始められます。放棄が成功すると、結果が記録済みでも結果行には常に `undecided abandoned` が表示されます。`history.jsonl` では、結果が未記録なら、放棄は verdict なしで run を closed として記録します（`undecided abandoned`）。中断前に結果が記録済みなら、その結果を保ち、放棄の結果は追加しません。放棄では anchor は動きません。`history.jsonl` 自体が壊れていると、放棄も `history-corrupt`（終了値 4）で失敗し、run は開いたままです。先に履歴を直してください。OS のエラーでも終了値 4 で失敗します。例は `PermissionError` と `OSError` です。`history-corrupt` を含むこれらの履歴の読み取りの失敗では、結果行の `runId` は null です。修復方法は [ADOPTION.ja.md](ADOPTION.ja.md) 第 11 節の `history-corrupt` の項を参照してください。anchor file だけが壊れている場合は放棄できます。
 
 ## 9. 定期実行・非対話での実行
 
